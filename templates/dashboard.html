@@ -1,0 +1,2057 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🤖 Deriv AI Trading Bot - Professional Dashboard</title>
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    
+    <style>
+        :root {
+            --primary-color: #2563eb;
+            --success-color: #10b981;
+            --danger-color: #ef4444;
+            --warning-color: #f59e0b;
+            --info-color: #06b6d4;
+            --dark-bg: #1f2937;
+            --light-bg: #f8fafc;
+            --card-bg: #ffffff;
+            --border-color: #e5e7eb;
+            --text-primary: #111827;
+            --text-secondary: #6b7280;
+            --success-light: #dcfce7;
+            --danger-light: #fef2f2;
+        }
+
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+            min-height: 100vh;
+            color: var(--text-primary);
+        }
+
+        .main-container {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(20px);
+            border-radius: 24px;
+            margin: 20px;
+            padding: 30px;
+            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.15);
+        }
+
+        .status-card {
+            background: linear-gradient(135deg, var(--primary-color), #3b82f6);
+            color: white;
+            border-radius: 20px;
+            padding: 30px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .status-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 100px;
+            height: 100px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 50%;
+            transform: translate(30px, -30px);
+        }
+
+        .metric-card {
+            background: var(--card-bg);
+            border-radius: 16px;
+            padding: 24px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            border: 1px solid var(--border-color);
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .metric-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+        }
+
+        .metric-value {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+            color: var(--text-primary);
+        }
+
+        .metric-label {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .metric-change {
+            font-size: 0.75rem;
+            font-weight: 600;
+            padding: 4px 8px;
+            border-radius: 12px;
+            position: absolute;
+            top: 16px;
+            right: 16px;
+        }
+
+        .metric-change.positive {
+            background: var(--success-light);
+            color: var(--success-color);
+        }
+
+        .metric-change.negative {
+            background: var(--danger-light);
+            color: var(--danger-color);
+        }
+
+        .control-panel {
+            background: var(--card-bg);
+            border-radius: 20px;
+            padding: 32px;
+            box-shadow: 0 6px 25px rgba(0, 0, 0, 0.1);
+            border: 1px solid var(--border-color);
+        }
+
+        .control-button {
+            border-radius: 16px;
+            padding: 16px 32px;
+            font-weight: 600;
+            font-size: 1rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            transition: all 0.3s ease;
+            border: none;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .control-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
+        }
+
+        .control-button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .status-indicator {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 10px;
+            position: relative;
+        }
+
+        .status-running {
+            background: var(--success-color);
+            animation: pulse-green 2s infinite;
+        }
+
+        .status-stopped {
+            background: var(--danger-color);
+        }
+
+        @keyframes pulse-green {
+            0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+            70% { box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+
+        .data-table {
+            background: var(--card-bg);
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+        }
+
+        .table-header {
+            background: linear-gradient(135deg, #f8fafc, #e2e8f0);
+            padding: 20px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .trade-item {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 12px;
+            border-left: 4px solid var(--border-color);
+            transition: all 0.2s ease;
+        }
+
+        .trade-item:hover {
+            background: #f9fafb;
+            transform: translateX(4px);
+        }
+
+        .trade-won {
+            border-left-color: var(--success-color);
+            background: linear-gradient(90deg, var(--success-light), var(--card-bg));
+        }
+
+        .trade-lost {
+            border-left-color: var(--danger-color);
+            background: linear-gradient(90deg, var(--danger-light), var(--card-bg));
+        }
+
+        .trade-pending {
+            border-left-color: var(--warning-color);
+            background: linear-gradient(90deg, #fef3c7, var(--card-bg));
+        }
+
+        .chart-container {
+            background: var(--card-bg);
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 24px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            position: relative;
+            height: 400px;
+        }
+
+        .nav-tabs {
+            border: none;
+            background: var(--light-bg);
+            border-radius: 16px;
+            padding: 8px;
+        }
+
+        .nav-tabs .nav-link {
+            border: none;
+            border-radius: 12px;
+            padding: 12px 24px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            transition: all 0.3s ease;
+        }
+
+        .nav-tabs .nav-link.active {
+            background: var(--primary-color);
+            color: white;
+            box-shadow: 0 4px 15px rgba(37, 99, 235, 0.3);
+        }
+
+        .live-badge {
+            background: linear-gradient(45deg, #ef4444, #f87171);
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            animation: pulse-red 2s infinite;
+            text-transform: uppercase;
+        }
+
+        @keyframes pulse-red {
+            0% { opacity: 1; }
+            50% { opacity: 0.7; }
+            100% { opacity: 1; }
+        }
+
+        .loading-spinner {
+            border: 3px solid #f3f4f6;
+            border-top: 3px solid var(--primary-color);
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .alert-modern {
+            border: none;
+            border-radius: 12px;
+            padding: 16px 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .progress-modern {
+            height: 8px;
+            border-radius: 10px;
+            background: var(--light-bg);
+            overflow: hidden;
+        }
+
+        .progress-bar-modern {
+            height: 100%;
+            border-radius: 10px;
+            transition: width 0.3s ease;
+        }
+
+        .analysis-card {
+            background: var(--card-bg);
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            border: 1px solid var(--border-color);
+            position: relative;
+        }
+
+        .confidence-meter {
+            background: linear-gradient(90deg, #ef4444 0%, #f59e0b 50%, #10b981 100%);
+            height: 12px;
+            border-radius: 10px;
+            position: relative;
+            margin: 16px 0;
+        }
+
+        .confidence-indicator {
+            position: absolute;
+            top: -2px;
+            width: 16px;
+            height: 16px;
+            background: white;
+            border: 3px solid var(--primary-color);
+            border-radius: 50%;
+            transform: translateX(-50%);
+        }
+
+        .stat-mini {
+            text-align: center;
+            padding: 16px;
+            background: var(--light-bg);
+            border-radius: 12px;
+            margin-bottom: 12px;
+        }
+
+        .stat-mini-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .stat-mini-label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .connection-status {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            z-index: 1000;
+            transition: all 0.3s ease;
+        }
+
+        .connection-online {
+            background: var(--success-color);
+            color: white;
+        }
+
+        .connection-offline {
+            background: var(--danger-color);
+            color: white;
+        }
+
+        .config-display {
+            border-left: 4px solid var(--info-color);
+        }
+
+        .btn-check:checked + .btn-outline-primary {
+            background-color: var(--primary-color);
+            border-color: var(--primary-color);
+            color: white;
+        }
+
+        .trading-mode-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 0.5rem;
+        }
+
+        .modal-xl {
+            max-width: 90%;
+        }
+
+        @media (max-width: 768px) {
+            .trading-mode-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            
+            .modal-xl {
+                max-width: 95%;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .main-container {
+                margin: 10px;
+                padding: 20px;
+            }
+            
+            .metric-value {
+                font-size: 2rem;
+            }
+            
+            .control-button {
+                padding: 12px 24px;
+                font-size: 0.9rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Connection Status -->
+    <div id="connection-status" class="connection-status connection-offline">
+        <i class="fas fa-wifi"></i> Connecting...
+    </div>
+
+    <div class="main-container">
+        <!-- Header Section -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="status-card">
+                    <div class="row align-items-center">
+                        <div class="col-md-8">
+                            <h1 class="display-5 fw-bold mb-2">
+                                🤖 Deriv AI Trading Bot
+                            </h1>
+                            <p class="mb-0 opacity-90">Professional Trading Dashboard with Real-time Analytics</p>
+                        </div>
+                        <div class="col-md-4 text-end">
+                            <div class="mb-2">
+                                <span class="badge bg-light text-dark fs-6">DEMO MODE</span>
+                                <button class="btn btn-sm btn-outline-light ms-2" onclick="showTradingConfig()" title="Configuration">
+                                    <i class="fas fa-cog"></i>
+                                </button>
+                            </div>
+                            <div id="bot-status" class="fs-5">
+                                <span class="status-indicator status-stopped"></span>
+                                <span id="status-text">Stopped</span>
+                            </div>
+                            <div class="mt-2">
+                                <small class="opacity-75">Last Update: <span id="last-update">--</span></small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Trading Controls -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="control-panel">
+                    <div class="row align-items-center">
+                        <div class="col-md-6">
+                            <h5 class="mb-3"><i class="fas fa-gamepad me-2"></i>Trading Controls</h5>
+                            <div class="btn-group" role="group">
+                                <button id="start-bot" class="btn btn-success control-button me-3">
+                                    <i class="fas fa-play me-2"></i>Start Trading
+                                </button>
+                                <button id="stop-bot" class="btn btn-danger control-button" disabled>
+                                    <i class="fas fa-stop me-2"></i>Stop Trading
+                                </button>
+                            </div>
+                        </div>
+                        <div class="col-md-6 text-end">
+                            <div class="stat-mini">
+                                <div class="stat-mini-value" id="uptime-display">00:00:00</div>
+                                <div class="stat-mini-label">Uptime</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Account Balance & Key Metrics -->
+        <div class="row mb-4">
+            <div class="col-lg-3 col-md-6 mb-3">
+                <div class="metric-card">
+                    <div class="metric-change positive" id="balance-change">+0.00%</div>
+                    <div class="metric-value" id="account-balance">$10,000.00</div>
+                    <div class="metric-label">Account Balance</div>
+                    <div class="mt-2">
+                        <small class="text-muted">Equity: <span id="account-equity">$10,000.00</span></small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-3 col-md-6 mb-3">
+                <div class="metric-card">
+                    <div class="metric-change" id="profit-change">+0.00%</div>
+                    <div class="metric-value" id="session-profit">$0.00</div>
+                    <div class="metric-label">Session P&L</div>
+                    <div class="mt-2">
+                        <small class="text-muted">Margin: <span id="margin-used">$0.00</span></small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-3 col-md-6 mb-3">
+                <div class="metric-card">
+                    <div class="metric-value" id="win-rate">0.0%</div>
+                    <div class="metric-label">Win Rate</div>
+                    <div class="progress-modern mt-2">
+                        <div class="progress-bar-modern bg-success" id="win-rate-progress" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-3 col-md-6 mb-3">
+                <div class="metric-card">
+                    <div class="metric-value" id="total-trades">0</div>
+                    <div class="metric-label">Total Trades</div>
+                    <div class="mt-2">
+                        <small class="text-muted">Active: <span id="active-trades">0</span></small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content Tabs -->
+        <div class="row">
+            <div class="col-12">
+                <ul class="nav nav-tabs mb-4" id="mainTabs" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="live-trades-tab" data-bs-toggle="tab" 
+                                data-bs-target="#live-trades" type="button" role="tab">
+                            <i class="fas fa-chart-line me-2"></i>Live Trades <span class="live-badge">LIVE</span>
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="trade-history-tab" data-bs-toggle="tab" 
+                                data-bs-target="#trade-history" type="button" role="tab">
+                            <i class="fas fa-history me-2"></i>Trade History
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="performance-tab" data-bs-toggle="tab" 
+                                data-bs-target="#performance" type="button" role="tab">
+                            <i class="fas fa-chart-bar me-2"></i>Performance Charts
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="ai-analysis-tab" data-bs-toggle="tab" 
+                                data-bs-target="#ai-analysis" type="button" role="tab">
+                            <i class="fas fa-brain me-2"></i>AI Analysis
+                        </button>
+                    </li>
+                </ul>
+
+                <div class="tab-content" id="mainTabsContent">
+                    <!-- Live Trades Tab -->
+                    <div class="tab-pane fade show active" id="live-trades" role="tabpanel">
+                        <div class="data-table">
+                            <div class="table-header">
+                                <div class="row align-items-center">
+                                    <div class="col">
+                                        <h5 class="mb-0"><i class="fas fa-chart-line me-2"></i>Current Active Trades</h5>
+                                    </div>
+                                    <div class="col-auto">
+                                        <span class="badge bg-primary" id="active-trades-count">0 Active</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="p-3">
+                                <div id="current-trades-list">
+                                    <div class="loading-spinner"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Trade History Tab -->
+                    <div class="tab-pane fade" id="trade-history" role="tabpanel">
+                        <div class="data-table">
+                            <div class="table-header">
+                                <div class="row align-items-center">
+                                    <div class="col">
+                                        <h5 class="mb-0"><i class="fas fa-history me-2"></i>Recent Trade History</h5>
+                                    </div>
+                                    <div class="col-auto">
+                                        <select class="form-select form-select-sm" id="history-filter">
+                                            <option value="50">Last 50 trades</option>
+                                            <option value="100">Last 100 trades</option>
+                                            <option value="all">All trades</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="p-3">
+                                <div id="trade-history-list">
+                                    <div class="loading-spinner"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Performance Charts Tab -->
+                    <div class="tab-pane fade" id="performance" role="tabpanel">
+                        <div class="row">
+                            <div class="col-lg-8">
+                                <div class="chart-container">
+                                    <h6 class="mb-3">Daily Performance (Last 30 Days)</h6>
+                                    <canvas id="performanceChart"></canvas>
+                                </div>
+                            </div>
+                            <div class="col-lg-4">
+                                <div class="chart-container">
+                                    <h6 class="mb-3">Win/Loss Distribution</h6>
+                                    <canvas id="winLossChart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-lg-6">
+                                <div class="chart-container">
+                                    <h6 class="mb-3">Hourly Performance (Today)</h6>
+                                    <canvas id="hourlyChart"></canvas>
+                                </div>
+                            </div>
+                            <div class="col-lg-6">
+                                <div class="chart-container">
+                                    <h6 class="mb-3">Symbol Performance</h6>
+                                    <canvas id="symbolChart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- AI Analysis Tab -->
+                    <div class="tab-pane fade" id="ai-analysis" role="tabpanel">
+                        <div class="analysis-card">
+                            <div class="row">
+                                <div class="col-lg-8">
+                                    <h5 class="mb-3"><i class="fas fa-brain me-2"></i>Latest AI Market Analysis</h5>
+                                    <div id="analysis-content">
+                                        <div class="loading-spinner"></div>
+                                    </div>
+                                </div>
+                                <div class="col-lg-4">
+                                    <div class="analysis-card">
+                                        <h6 class="mb-3">Market Conditions</h6>
+                                        <div id="market-conditions">
+                                            <div class="loading-spinner"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div class="toast-container position-fixed top-0 end-0 p-3" id="toast-container"></div>
+
+    <!-- API Key Setup Modal -->
+    <div class="modal fade" id="apiKeyModal" tabindex="-1" aria-labelledby="apiKeyModalLabel" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title" id="apiKeyModalLabel">
+                        <i class="fas fa-key me-2"></i>API Configuration Required
+                    </h5>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle me-2"></i>
+                        Please enter your Deriv API credentials to start trading. Follow the instructions below to get your credentials.
+                    </div>
+                    
+                    <!-- Instructions Accordion -->
+                    <div class="accordion mb-4" id="instructionsAccordion">
+                        <div class="accordion-item">
+                            <h2 class="accordion-header" id="headingInstructions">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseInstructions" aria-expanded="false" aria-controls="collapseInstructions">
+                                    <i class="fas fa-question-circle me-2"></i>How to get your Deriv API credentials?
+                                </button>
+                            </h2>
+                            <div id="collapseInstructions" class="accordion-collapse collapse" aria-labelledby="headingInstructions" data-bs-parent="#instructionsAccordion">
+                                <div class="accordion-body">
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <h6><i class="fas fa-key me-2 text-primary"></i>Getting your API Key:</h6>
+                                            <ol class="small">
+                                                <li>Go to <a href="https://app.deriv.com" target="_blank" class="text-primary">app.deriv.com</a></li>
+                                                <li>Login to your account</li>
+                                                <li>Click on your profile (top right corner)</li>
+                                                <li>Go to <strong>"API token"</strong> section</li>
+                                                <li>Click <strong>"Create"</strong> to generate a new token</li>
+                                                <li>Give it a name (e.g., "Trading Bot")</li>
+                                                <li>Select scopes: <strong>Read, Trade, Payments, Admin</strong></li>
+                                                <li>Copy the generated token</li>
+                                            </ol>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <h6><i class="fas fa-mobile-alt me-2 text-success"></i>Getting your App ID:</h6>
+                                            <div class="alert alert-success">
+                                                <strong>Quick Option:</strong> Use <code>1089</code> for testing
+                                            </div>
+                                            <p class="small"><strong>Or create your own:</strong></p>
+                                            <ol class="small">
+                                                <li>Go to <a href="https://developers.deriv.com/docs/app-registration/" target="_blank" class="text-success">developers.deriv.com</a></li>
+                                                <li>Click <strong>"Register your app"</strong></li>
+                                                <li>Fill in app details:
+                                                    <ul>
+                                                        <li><strong>Name:</strong> Your bot name</li>
+                                                        <li><strong>Redirect URL:</strong> <code>https://localhost</code></li>
+                                                        <li><strong>Verification URL:</strong> <code>https://localhost</code></li>
+                                                    </ul>
+                                                </li>
+                                                <li>Submit and get your App ID</li>
+                                            </ol>
+                                        </div>
+                                    </div>
+                                    <div class="alert alert-warning mt-3">
+                                        <i class="fas fa-exclamation-triangle me-2"></i>
+                                        <strong>Important:</strong> Keep your API key secure and never share it with others. Start with Demo account for testing.
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <form id="apiKeyForm">
+                        <div class="mb-3">
+                            <label for="apiKey" class="form-label">
+                                API Key <span class="text-danger">*</span>
+                                <button type="button" class="btn btn-sm btn-outline-info ms-2" data-bs-toggle="collapse" data-bs-target="#collapseInstructions" aria-expanded="false">
+                                    <i class="fas fa-question-circle"></i>
+                                </button>
+                            </label>
+                            <input type="password" class="form-control" id="apiKey" placeholder="Enter your Deriv API key" required>
+                            <div class="form-text">
+                                <i class="fas fa-shield-alt me-1"></i>
+                                Your API token from Deriv account (Go to Profile → API token)
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="appId" class="form-label">
+                                App ID <span class="text-danger">*</span>
+                                <button type="button" class="btn btn-sm btn-outline-info ms-2" data-bs-toggle="collapse" data-bs-target="#collapseInstructions" aria-expanded="false">
+                                    <i class="fas fa-question-circle"></i>
+                                </button>
+                            </label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="appId" placeholder="Enter your Deriv App ID" required>
+                                <button class="btn btn-outline-secondary" type="button" onclick="useDefaultAppId()" title="Use default App ID for testing">
+                                    <i class="fas fa-magic"></i> Use Default
+                                </button>
+                            </div>
+                            <div class="form-text">
+                                <i class="fas fa-info-circle me-1"></i>
+                                Use <strong>1089</strong> for testing, or create your own at developers.deriv.com
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="accountType" class="form-label">Account Type</label>
+                            <select class="form-select" id="accountType">
+                                <option value="demo">Demo Account</option>
+                                <option value="real">Real Account</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-check mb-3">
+                            <input class="form-check-input" type="checkbox" id="saveCredentials">
+                            <label class="form-check-label" for="saveCredentials">
+                                Remember credentials (stored locally)
+                            </label>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="exitApplication()">
+                        <i class="fas fa-times me-2"></i>Exit
+                    </button>
+                    <button type="button" class="btn btn-primary" onclick="saveApiCredentials()">
+                        <i class="fas fa-save me-2"></i>Save & Continue
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Trading Configuration Modal -->
+    <div class="modal fade" id="tradingConfigModal" tabindex="-1" aria-labelledby="tradingConfigModalLabel" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header bg-success text-white">
+                    <h5 class="modal-title" id="tradingConfigModalLabel">
+                        <i class="fas fa-cog me-2"></i>Trading Configuration
+                    </h5>
+                </div>
+                <div class="modal-body">
+                    <div class="row">
+                        <!-- Market Selection -->
+                        <div class="col-md-6">
+                            <div class="card mb-3">
+                                <div class="card-header">
+                                    <h6 class="mb-0"><i class="fas fa-chart-line me-2"></i>Market & Symbol Selection</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div class="mb-3">
+                                        <label for="marketSelect" class="form-label">Market</label>
+                                        <select class="form-select" id="marketSelect" onchange="updateSymbols()">
+                                            <option value="forex">Forex</option>
+                                            <option value="indices">Indices</option>
+                                            <option value="commodities">Commodities</option>
+                                            <option value="cryptocurrencies">Cryptocurrencies</option>
+                                            <option value="synthetic">Synthetic Indices</option>
+                                        </select>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <label for="symbolSelect" class="form-label">Symbol</label>
+                                        <select class="form-select" id="symbolSelect">
+                                            <option value="R_10">Volatility 10 Index</option>
+                                            <option value="R_25">Volatility 25 Index</option>
+                                            <option value="R_50">Volatility 50 Index</option>
+                                            <option value="R_75">Volatility 75 Index</option>
+                                            <option value="R_100">Volatility 100 Index</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Trading Mode Selection -->
+                        <div class="col-md-6">
+                            <div class="card mb-3">
+                                <div class="card-header">
+                                    <h6 class="mb-0"><i class="fas fa-exchange-alt me-2"></i>Trading Mode</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div class="trading-mode-grid">
+                                        <div>
+                                            <input type="radio" class="btn-check" name="tradingMode" id="upDown" value="up_down" checked>
+                                            <label class="btn btn-outline-primary w-100" for="upDown">
+                                                <i class="fas fa-arrow-up me-1"></i><i class="fas fa-arrow-down"></i><br>
+                                                <small>Up/Down</small>
+                                            </label>
+                                        </div>
+                                        <div>
+                                            <input type="radio" class="btn-check" name="tradingMode" id="touchNoTouch" value="touch_no_touch">
+                                            <label class="btn btn-outline-primary w-100" for="touchNoTouch">
+                                                <i class="fas fa-hand-pointer"></i><br>
+                                                <small>Touch/No Touch</small>
+                                            </label>
+                                        </div>
+                                        <div>
+                                            <input type="radio" class="btn-check" name="tradingMode" id="inOut" value="in_out">
+                                            <label class="btn btn-outline-primary w-100" for="inOut">
+                                                <i class="fas fa-compress-arrows-alt"></i><br>
+                                                <small>In/Out</small>
+                                            </label>
+                                        </div>
+                                        <div>
+                                            <input type="radio" class="btn-check" name="tradingMode" id="asians" value="asians">
+                                            <label class="btn btn-outline-primary w-100" for="asians">
+                                                <i class="fas fa-balance-scale"></i><br>
+                                                <small>Asians</small>
+                                            </label>
+                                        </div>
+                                        <div>
+                                            <input type="radio" class="btn-check" name="tradingMode" id="digits" value="digits">
+                                            <label class="btn btn-outline-primary w-100" for="digits">
+                                                <i class="fas fa-calculator"></i><br>
+                                                <small>Digits</small>
+                                            </label>
+                                        </div>
+                                        <div>
+                                            <input type="radio" class="btn-check" name="tradingMode" id="resetCallPut" value="reset_call_put">
+                                            <label class="btn btn-outline-primary w-100" for="resetCallPut">
+                                                <i class="fas fa-redo"></i><br>
+                                                <small>Reset Call/Put</small>
+                                            </label>
+                                        </div>
+                                        <div>
+                                            <input type="radio" class="btn-check" name="tradingMode" id="highLowTicks" value="high_low_ticks">
+                                            <label class="btn btn-outline-primary w-100" for="highLowTicks">
+                                                <i class="fas fa-chart-bar"></i><br>
+                                                <small>High/Low Ticks</small>
+                                            </label>
+                                        </div>
+                                        <div>
+                                            <input type="radio" class="btn-check" name="tradingMode" id="onlyUpsDowns" value="only_ups_downs">
+                                            <label class="btn btn-outline-primary w-100" for="onlyUpsDowns">
+                                                <i class="fas fa-sort"></i><br>
+                                                <small>Only Ups/Downs</small>
+                                            </label>
+                                        </div>
+                                        <div>
+                                            <input type="radio" class="btn-check" name="tradingMode" id="multipliers" value="multipliers">
+                                            <label class="btn btn-outline-primary w-100" for="multipliers">
+                                                <i class="fas fa-times"></i><br>
+                                                <small>Multipliers</small>
+                                            </label>
+                                        </div>
+                                        <div>
+                                            <input type="radio" class="btn-check" name="tradingMode" id="accumulators" value="accumulators">
+                                            <label class="btn btn-outline-primary w-100" for="accumulators">
+                                                <i class="fas fa-layer-group"></i><br>
+                                                <small>Accumulators</small>
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Trading Parameters -->
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h6 class="mb-0"><i class="fas fa-sliders-h me-2"></i>Trading Parameters</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div class="mb-3">
+                                        <label for="stakeAmount" class="form-label">Stake Amount ($)</label>
+                                        <input type="number" class="form-control" id="stakeAmount" value="1" min="0.35" step="0.01">
+                                    </div>
+                                    
+                                    <div class="mb-3" id="durationContainer">
+                                        <label for="tradeDuration" class="form-label">Duration</label>
+                                        <div class="input-group">
+                                            <input type="number" class="form-control" id="tradeDuration" value="5" min="1">
+                                            <select class="form-select" id="durationUnit" style="max-width: 100px;">
+                                                <option value="t">Ticks</option>
+                                                <option value="s">Seconds</option>
+                                                <option value="m" selected>Minutes</option>
+                                                <option value="h">Hours</option>
+                                                <option value="d">Days</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="mb-3" id="barrierContainer" style="display: none;">
+                                        <label for="barrierValue" class="form-label">Barrier</label>
+                                        <input type="number" class="form-control" id="barrierValue" step="0.00001">
+                                    </div>
+                                    
+                                    <div class="mb-3" id="digitContainer" style="display: none;">
+                                        <label for="digitValue" class="form-label">Digit</label>
+                                        <select class="form-select" id="digitValue">
+                                            <option value="0">0</option>
+                                            <option value="1">1</option>
+                                            <option value="2">2</option>
+                                            <option value="3">3</option>
+                                            <option value="4">4</option>
+                                            <option value="5">5</option>
+                                            <option value="6">6</option>
+                                            <option value="7">7</option>
+                                            <option value="8">8</option>
+                                            <option value="9">9</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h6 class="mb-0"><i class="fas fa-shield-alt me-2"></i>Risk Management</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div class="mb-3">
+                                        <label for="maxLoss" class="form-label">Max Daily Loss ($)</label>
+                                        <input type="number" class="form-control" id="maxLoss" value="100" min="1">
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <label for="maxProfit" class="form-label">Target Daily Profit ($)</label>
+                                        <input type="number" class="form-control" id="maxProfit" value="50" min="1">
+                                    </div>
+                                    
+                                    <div class="form-check mb-3">
+                                        <input class="form-check-input" type="checkbox" id="martingaleEnabled">
+                                        <label class="form-check-label" for="martingaleEnabled">
+                                            Enable Martingale Strategy
+                                        </label>
+                                    </div>
+                                    
+                                    <div class="mb-3" id="martingaleSettings" style="display: none;">
+                                        <label for="martingaleMultiplier" class="form-label">Martingale Multiplier</label>
+                                        <input type="number" class="form-control" id="martingaleMultiplier" value="2.1" min="1.1" step="0.1">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="backToApiConfig()">
+                        <i class="fas fa-arrow-left me-2"></i>Back
+                    </button>
+                    <button type="button" class="btn btn-success" onclick="saveTradingConfiguration()">
+                        <i class="fas fa-rocket me-2"></i>Start Trading Bot
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        // Global variables
+        let websocket = null;
+        let reconnectInterval = null;
+        let charts = {};
+        let lastUpdateTime = new Date();
+
+        // Initialize dashboard
+        document.addEventListener('DOMContentLoaded', function() {
+            // Check if API key is configured
+            checkApiConfiguration();
+            
+            initializeWebSocket();
+            initializeCharts();
+            loadInitialData();
+            setupEventListeners();
+            startUptimeCounter();
+            setupTradingModeHandlers();
+        });
+
+        // WebSocket Connection
+        function initializeWebSocket() {
+            const wsUrl = `ws://${window.location.host}/ws`;
+            
+            try {
+                websocket = new WebSocket(wsUrl);
+                
+                websocket.onopen = function(event) {
+                    console.log('WebSocket connected');
+                    updateConnectionStatus(true);
+                    
+                    if (reconnectInterval) {
+                        clearInterval(reconnectInterval);
+                        reconnectInterval = null;
+                    }
+                };
+                
+                websocket.onmessage = function(event) {
+                    const data = JSON.parse(event.data);
+                    handleWebSocketMessage(data);
+                };
+                
+                websocket.onclose = function(event) {
+                    console.log('WebSocket disconnected');
+                    updateConnectionStatus(false);
+                    
+                    // Attempt to reconnect
+                    if (!reconnectInterval) {
+                        reconnectInterval = setInterval(function() {
+                            console.log('Attempting to reconnect...');
+                            initializeWebSocket();
+                        }, 5000);
+                    }
+                };
+                
+                websocket.onerror = function(error) {
+                    console.error('WebSocket error:', error);
+                    updateConnectionStatus(false);
+                };
+                
+            } catch (error) {
+                console.error('Failed to create WebSocket:', error);
+                updateConnectionStatus(false);
+            }
+        }
+
+        function handleWebSocketMessage(data) {
+            console.log('WebSocket message received:', data);
+            
+            switch (data.type) {
+                case 'dashboard_update':
+                    updateDashboard(data);
+                    break;
+                case 'bot_started':
+                    showNotification('success', data.message);
+                    updateBotStatus(true);
+                    break;
+                case 'bot_stopped':
+                    showNotification('info', data.message);
+                    updateBotStatus(false);
+                    break;
+                case 'bot_status_update':
+                    updateBotStatusData(data.data);
+                    break;
+                default:
+                    console.log('Unknown message type:', data.type);
+            }
+        }
+
+        function updateConnectionStatus(connected) {
+            const statusElement = document.getElementById('connection-status');
+            if (connected) {
+                statusElement.className = 'connection-status connection-online';
+                statusElement.innerHTML = '<i class="fas fa-wifi"></i> Connected';
+            } else {
+                statusElement.className = 'connection-status connection-offline';
+                statusElement.innerHTML = '<i class="fas fa-wifi"></i> Disconnected';
+            }
+        }
+
+        // Dashboard Updates
+        function updateDashboard(data) {
+            if (data.bot_status) {
+                updateBotStatusData(data.bot_status);
+            }
+            
+            if (data.account_info) {
+                updateAccountInfo(data.account_info);
+            }
+            
+            // Update last update time
+            document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+        }
+
+        function updateBotStatusData(statusData) {
+            const statusIndicator = document.querySelector('.status-indicator');
+            const statusText = document.getElementById('status-text');
+            const startBtn = document.getElementById('start-bot');
+            const stopBtn = document.getElementById('stop-bot');
+            
+            if (statusData.is_running) {
+                statusIndicator.className = 'status-indicator status-running';
+                statusText.textContent = 'Running';
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+            } else {
+                statusIndicator.className = 'status-indicator status-stopped';
+                statusText.textContent = 'Stopped';
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+            }
+            
+            // Update metrics
+            if (statusData.total_trades_today !== undefined) {
+                document.getElementById('total-trades').textContent = statusData.total_trades_today;
+            }
+            if (statusData.win_rate !== undefined) {
+                document.getElementById('win-rate').textContent = statusData.win_rate + '%';
+                document.getElementById('win-rate-progress').style.width = statusData.win_rate + '%';
+            }
+            if (statusData.session_profit !== undefined) {
+                document.getElementById('session-profit').textContent = '$' + statusData.session_profit.toFixed(2);
+                updateProfitChange(statusData.session_profit);
+            }
+            if (statusData.current_trades !== undefined) {
+                document.getElementById('active-trades').textContent = statusData.current_trades;
+                document.getElementById('active-trades-count').textContent = statusData.current_trades + ' Active';
+            }
+        }
+
+        function updateAccountInfo(accountInfo) {
+            if (accountInfo.balance !== undefined) {
+                document.getElementById('account-balance').textContent = '$' + accountInfo.balance.toFixed(2);
+            }
+            if (accountInfo.equity !== undefined) {
+                document.getElementById('account-equity').textContent = '$' + accountInfo.equity.toFixed(2);
+            }
+            if (accountInfo.margin_used !== undefined) {
+                document.getElementById('margin-used').textContent = '$' + accountInfo.margin_used.toFixed(2);
+            }
+            if (accountInfo.session_pnl !== undefined) {
+                document.getElementById('session-profit').textContent = '$' + accountInfo.session_pnl.toFixed(2);
+                updateProfitChange(accountInfo.session_pnl);
+            }
+        }
+
+        function updateProfitChange(profit) {
+            const changeElement = document.getElementById('profit-change');
+            if (profit > 0) {
+                changeElement.className = 'metric-change positive';
+                changeElement.textContent = '+' + ((profit / 10000) * 100).toFixed(2) + '%';
+            } else if (profit < 0) {
+                changeElement.className = 'metric-change negative';
+                changeElement.textContent = ((profit / 10000) * 100).toFixed(2) + '%';
+            } else {
+                changeElement.className = 'metric-change';
+                changeElement.textContent = '0.00%';
+            }
+        }
+
+        // Event Listeners
+        function setupEventListeners() {
+            // Bot control buttons
+            document.getElementById('start-bot').addEventListener('click', startBot);
+            document.getElementById('stop-bot').addEventListener('click', stopBot);
+            
+            // Tab switches
+            document.getElementById('live-trades-tab').addEventListener('click', loadCurrentTrades);
+            document.getElementById('trade-history-tab').addEventListener('click', loadTradeHistory);
+            document.getElementById('performance-tab').addEventListener('click', loadPerformanceCharts);
+            document.getElementById('ai-analysis-tab').addEventListener('click', loadAIAnalysis);
+            
+            // History filter
+            document.getElementById('history-filter').addEventListener('change', loadTradeHistory);
+        }
+
+        // API Calls
+        async function startBot() {
+            try {
+                showNotification('info', 'Starting trading bot...');
+                const response = await fetch('/api/bot/start', { method: 'POST' });
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    showNotification('success', result.message);
+                } else {
+                    showNotification('error', result.message);
+                }
+            } catch (error) {
+                showNotification('error', 'Failed to start bot: ' + error.message);
+            }
+        }
+
+        async function stopBot() {
+            try {
+                showNotification('info', 'Stopping trading bot...');
+                const response = await fetch('/api/bot/stop', { method: 'POST' });
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    showNotification('success', result.message);
+                } else {
+                    showNotification('error', result.message);
+                }
+            } catch (error) {
+                showNotification('error', 'Failed to stop bot: ' + error.message);
+            }
+        }
+
+        async function loadCurrentTrades() {
+            try {
+                const response = await fetch('/api/trades/current');
+                const data = await response.json();
+                
+                const container = document.getElementById('current-trades-list');
+                
+                if (data.current_trades && data.current_trades.length === 0) {
+                    container.innerHTML = `
+                        <div class="text-center py-5">
+                            <i class="fas fa-chart-line fa-4x text-muted mb-3"></i>
+                            <h5 class="text-muted">No Active Trades</h5>
+                            <p class="text-muted">Start the bot to begin live trading</p>
+                        </div>
+                    `;
+                } else if (data.current_trades) {
+                    container.innerHTML = data.current_trades.map(trade => `
+                        <div class="trade-item trade-pending">
+                            <div class="row align-items-center">
+                                <div class="col-md-2">
+                                    <strong>${trade.symbol}</strong>
+                                    <div class="small text-muted">#${trade.contract_id || trade.id}</div>
+                                </div>
+                                <div class="col-md-2">
+                                    <span class="badge bg-${trade.type === 'CALL' ? 'success' : 'danger'}">
+                                        ${trade.type}
+                                    </span>
+                                </div>
+                                <div class="col-md-2">
+                                    <strong>$${trade.stake}</strong>
+                                    <div class="small text-muted">Stake</div>
+                                </div>
+                                <div class="col-md-2">
+                                    <strong>${trade.time_remaining ? Math.max(0, trade.time_remaining).toFixed(0) : trade.duration}s</strong>
+                                    <div class="small text-muted">Remaining</div>
+                                </div>
+                                <div class="col-md-2">
+                                    <strong>${trade.ai_confidence}%</strong>
+                                    <div class="small text-muted">Confidence</div>
+                                </div>
+                                <div class="col-md-2">
+                                    <span class="badge bg-warning">PENDING</span>
+                                    <div class="small ${trade.current_pnl >= 0 ? 'text-success' : 'text-danger'}">
+                                        ${trade.current_pnl >= 0 ? '+' : ''}$${trade.current_pnl.toFixed(2)}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('');
+                }
+            } catch (error) {
+                console.error('Failed to load current trades:', error);
+                showNotification('error', 'Failed to load current trades');
+            }
+        }
+
+        async function loadTradeHistory() {
+            try {
+                const limit = document.getElementById('history-filter').value;
+                const url = limit === 'all' ? '/api/trades/history' : `/api/trades/history?limit=${limit}`;
+                const response = await fetch(url);
+                const data = await response.json();
+                
+                const container = document.getElementById('trade-history-list');
+                
+                if (data.trade_history && data.trade_history.length === 0) {
+                    container.innerHTML = `
+                        <div class="text-center py-5">
+                            <i class="fas fa-history fa-4x text-muted mb-3"></i>
+                            <h5 class="text-muted">No Trade History</h5>
+                            <p class="text-muted">Trade history will appear here</p>
+                        </div>
+                    `;
+                } else if (data.trade_history) {
+                    // Add summary card
+                    let summaryHtml = '';
+                    if (data.summary) {
+                        summaryHtml = `
+                            <div class="alert alert-modern alert-info mb-4">
+                                <div class="row text-center">
+                                    <div class="col-md-3">
+                                        <strong>${data.summary.total_trades}</strong><br>
+                                        <small>Total Trades</small>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <strong class="text-success">${data.summary.won_trades}</strong><br>
+                                        <small>Won</small>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <strong>${data.summary.win_rate}%</strong><br>
+                                        <small>Win Rate</small>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <strong class="${data.summary.net_profit >= 0 ? 'text-success' : 'text-danger'}">
+                                            ${data.summary.net_profit >= 0 ? '+' : ''}$${data.summary.net_profit.toFixed(2)}
+                                        </strong><br>
+                                        <small>Net P&L</small>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    }
+                    
+                    container.innerHTML = summaryHtml + data.trade_history.map(trade => `
+                        <div class="trade-item trade-${trade.status.toLowerCase()}">
+                            <div class="row align-items-center">
+                                <div class="col-md-2">
+                                    <strong>${trade.symbol}</strong>
+                                    <div class="small text-muted">#${trade.contract_id || trade.id}</div>
+                                </div>
+                                <div class="col-md-1">
+                                    <span class="badge bg-${trade.type === 'CALL' ? 'success' : 'danger'}">
+                                        ${trade.type}
+                                    </span>
+                                </div>
+                                <div class="col-md-2">
+                                    <strong>$${trade.stake}</strong>
+                                    <div class="small text-muted">Stake</div>
+                                </div>
+                                <div class="col-md-2">
+                                    <strong class="${trade.profit_loss >= 0 ? 'text-success' : 'text-danger'}">
+                                        ${trade.profit_loss >= 0 ? '+' : ''}$${trade.profit_loss.toFixed(2)}
+                                    </strong>
+                                    <div class="small text-muted">P&L</div>
+                                </div>
+                                <div class="col-md-2">
+                                    <span class="badge bg-${trade.status === 'WON' ? 'success' : 'danger'}">
+                                        ${trade.status}
+                                    </span>
+                                    <div class="small text-muted">${trade.ai_confidence}% AI</div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="small text-muted">
+                                        ${trade.start_time ? new Date(trade.start_time).toLocaleString() : 'N/A'}
+                                    </div>
+                                    <div class="small text-muted">
+                                        Duration: ${trade.actual_duration ? trade.actual_duration.toFixed(0) : trade.duration}s
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('');
+                }
+            } catch (error) {
+                console.error('Failed to load trade history:', error);
+                showNotification('error', 'Failed to load trade history');
+            }
+        }
+
+        async function loadPerformanceCharts() {
+            try {
+                const response = await fetch('/api/analytics/performance');
+                const data = await response.json();
+                
+                updatePerformanceCharts(data);
+            } catch (error) {
+                console.error('Failed to load performance data:', error);
+                showNotification('error', 'Failed to load performance charts');
+            }
+        }
+
+        async function loadAIAnalysis() {
+            try {
+                const response = await fetch('/api/analysis/latest');
+                const data = await response.json();
+                
+                updateAIAnalysis(data);
+            } catch (error) {
+                console.error('Failed to load AI analysis:', error);
+                showNotification('error', 'Failed to load AI analysis');
+            }
+        }
+
+        // Charts
+        function initializeCharts() {
+            const ctx1 = document.getElementById('performanceChart');
+            if (ctx1) {
+                charts.performance = new Chart(ctx1, {
+                    type: 'line',
+                    data: {
+                        labels: [],
+                        datasets: [{
+                            label: 'Daily P&L',
+                            data: [],
+                            borderColor: 'rgb(37, 99, 235)',
+                            backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                            tension: 0.4,
+                            fill: true
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                display: false
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true
+                            }
+                        }
+                    }
+                });
+            }
+
+            const ctx2 = document.getElementById('winLossChart');
+            if (ctx2) {
+                charts.winLoss = new Chart(ctx2, {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['Won', 'Lost'],
+                        datasets: [{
+                            data: [0, 0],
+                            backgroundColor: ['#10b981', '#ef4444']
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false
+                    }
+                });
+            }
+
+            const ctx3 = document.getElementById('hourlyChart');
+            if (ctx3) {
+                charts.hourly = new Chart(ctx3, {
+                    type: 'bar',
+                    data: {
+                        labels: [],
+                        datasets: [{
+                            label: 'Hourly P&L',
+                            data: [],
+                            backgroundColor: 'rgba(37, 99, 235, 0.8)'
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                display: false
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true
+                            }
+                        }
+                    }
+                });
+            }
+
+            const ctx4 = document.getElementById('symbolChart');
+            if (ctx4) {
+                charts.symbol = new Chart(ctx4, {
+                    type: 'bar',
+                    data: {
+                        labels: [],
+                        datasets: [{
+                            label: 'Symbol P&L',
+                            data: [],
+                            backgroundColor: 'rgba(16, 185, 129, 0.8)'
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                display: false
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
+        function updatePerformanceCharts(data) {
+            if (!data) return;
+
+            // Update daily performance chart
+            if (charts.performance && data.daily_performance) {
+                charts.performance.data.labels = data.daily_performance.map(d => d.date);
+                charts.performance.data.datasets[0].data = data.daily_performance.map(d => d.profit);
+                charts.performance.update();
+            }
+
+            // Update win/loss chart
+            if (charts.winLoss && data.overall_statistics) {
+                charts.winLoss.data.datasets[0].data = [
+                    data.overall_statistics.winning_trades,
+                    data.overall_statistics.losing_trades
+                ];
+                charts.winLoss.update();
+            }
+
+            // Update hourly chart
+            if (charts.hourly && data.hourly_performance) {
+                charts.hourly.data.labels = data.hourly_performance.map(d => d.hour + ':00');
+                charts.hourly.data.datasets[0].data = data.hourly_performance.map(d => d.profit);
+                charts.hourly.update();
+            }
+
+            // Update symbol chart
+            if (charts.symbol && data.symbol_performance) {
+                charts.symbol.data.labels = data.symbol_performance.map(d => d.symbol);
+                charts.symbol.data.datasets[0].data = data.symbol_performance.map(d => d.profit);
+                charts.symbol.update();
+            }
+        }
+
+        function updateAIAnalysis(data) {
+            if (!data) return;
+
+            const container = document.getElementById('analysis-content');
+            const conditionsContainer = document.getElementById('market-conditions');
+
+            // Main analysis content
+            const ageMinutes = Math.floor(data.age_minutes || 0);
+            const ageText = ageMinutes > 60 ? `${Math.floor(ageMinutes / 60)}h ${ageMinutes % 60}m ago` : `${ageMinutes}m ago`;
+
+            container.innerHTML = `
+                <div class="mb-4">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h6 class="mb-0">Symbol: ${data.symbol}</h6>
+                        <small class="text-muted">${ageText}</small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between mb-2">
+                            <span>Prediction: <strong class="${data.prediction === 'CALL' ? 'text-success' : data.prediction === 'PUT' ? 'text-danger' : 'text-warning'}">${data.prediction}</strong></span>
+                            <span>Confidence: <strong>${data.confidence}%</strong></span>
+                        </div>
+                        <div class="confidence-meter">
+                            <div class="confidence-indicator" style="left: ${data.confidence}%"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="alert alert-modern alert-info">
+                        <h6><i class="fas fa-lightbulb me-2"></i>Analysis</h6>
+                        <p class="mb-0">${data.analysis_text}</p>
+                    </div>
+                </div>
+            `;
+
+            // Market conditions
+            if (data.market_conditions) {
+                conditionsContainer.innerHTML = `
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <div class="stat-mini">
+                                <div class="stat-mini-value">${data.market_conditions.trend}</div>
+                                <div class="stat-mini-label">Trend</div>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="stat-mini">
+                                <div class="stat-mini-value">${data.market_conditions.volatility}</div>
+                                <div class="stat-mini-label">Volatility</div>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="stat-mini">
+                                <div class="stat-mini-value">${data.market_conditions.rsi}</div>
+                                <div class="stat-mini-label">RSI</div>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="stat-mini">
+                                <div class="stat-mini-value">${data.market_conditions.macd_signal}</div>
+                                <div class="stat-mini-label">MACD</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-3">
+                        <h6>Risk Assessment</h6>
+                        <div class="alert alert-modern alert-${data.risk_assessment.level === 'LOW' ? 'success' : data.risk_assessment.level === 'HIGH' ? 'danger' : 'warning'}">
+                            <strong>Risk Level: ${data.risk_assessment.level}</strong><br>
+                            <small>Recommended Stake: $${data.risk_assessment.recommended_stake}</small>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        // Utility Functions
+        function loadInitialData() {
+            loadCurrentTrades();
+            loadTradeHistory();
+            loadPerformanceCharts();
+            loadAIAnalysis();
+        }
+
+        function startUptimeCounter() {
+            const startTime = new Date();
+            setInterval(function() {
+                const now = new Date();
+                const diff = now - startTime;
+                const hours = Math.floor(diff / 3600000);
+                const minutes = Math.floor((diff % 3600000) / 60000);
+                const seconds = Math.floor((diff % 60000) / 1000);
+                
+                document.getElementById('uptime-display').textContent = 
+                    `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            }, 1000);
+        }
+
+        function showNotification(type, message) {
+            const toastContainer = document.getElementById('toast-container');
+            const toastId = 'toast-' + Date.now();
+            
+            const bgColor = {
+                'success': 'bg-success',
+                'error': 'bg-danger',
+                'info': 'bg-info',
+                'warning': 'bg-warning'
+            }[type] || 'bg-info';
+            
+            const toast = document.createElement('div');
+            toast.id = toastId;
+            toast.className = `toast ${bgColor} text-white`;
+            toast.setAttribute('role', 'alert');
+            toast.innerHTML = `
+                <div class="toast-body">
+                    <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'exclamation-circle' : 'info-circle'} me-2"></i>
+                    ${message}
+                </div>
+            `;
+            
+            toastContainer.appendChild(toast);
+            
+            const bsToast = new bootstrap.Toast(toast, { delay: 5000 });
+            bsToast.show();
+            
+            toast.addEventListener('hidden.bs.toast', function() {
+                toast.remove();
+            });
+        }
+
+        function updateBotStatus(isRunning) {
+            const statusIndicator = document.querySelector('.status-indicator');
+            const statusText = document.getElementById('status-text');
+            const startBtn = document.getElementById('start-bot');
+            const stopBtn = document.getElementById('stop-bot');
+            
+            if (isRunning) {
+                statusIndicator.className = 'status-indicator status-running';
+                statusText.textContent = 'Running';
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+            } else {
+                statusIndicator.className = 'status-indicator status-stopped';
+                statusText.textContent = 'Stopped';
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+            }
+        }
+
+        // Auto-refresh data every 30 seconds
+        setInterval(function() {
+            const activeTab = document.querySelector('.nav-link.active').id;
+            switch (activeTab) {
+                case 'live-trades-tab':
+                    loadCurrentTrades();
+                    break;
+                case 'trade-history-tab':
+                    loadTradeHistory();
+                    break;
+                case 'performance-tab':
+                    loadPerformanceCharts();
+                    break;
+                case 'ai-analysis-tab':
+                    loadAIAnalysis();
+                    break;
+            }
+        }, 30000);
+
+        // API Configuration Functions
+        function checkApiConfiguration() {
+            // Check if API credentials are stored
+            const savedApiKey = localStorage.getItem('deriv_api_key');
+            const savedAppId = localStorage.getItem('deriv_app_id');
+            
+            if (!savedApiKey || !savedAppId) {
+                // Show API configuration modal
+                const apiModal = new bootstrap.Modal(document.getElementById('apiKeyModal'));
+                apiModal.show();
+            } else {
+                // Load saved credentials
+                document.getElementById('apiKey').value = atob(savedApiKey);
+                document.getElementById('appId').value = savedAppId;
+                document.getElementById('accountType').value = localStorage.getItem('account_type') || 'demo';
+            }
+        }
+
+        function saveApiCredentials() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const appId = document.getElementById('appId').value.trim();
+            const accountType = document.getElementById('accountType').value;
+            const saveCredentials = document.getElementById('saveCredentials').checked;
+            
+            if (!apiKey || !appId) {
+                showNotification('error', 'Please enter both API Key and App ID');
+                return;
+            }
+            
+            // Validate API key format (basic validation)
+            if (apiKey.length < 10) {
+                showNotification('error', 'API Key appears to be invalid');
+                return;
+            }
+            
+            // Save credentials if requested
+            if (saveCredentials) {
+                localStorage.setItem('deriv_api_key', btoa(apiKey));
+                localStorage.setItem('deriv_app_id', appId);
+                localStorage.setItem('account_type', accountType);
+            }
+            
+            // Send credentials to backend
+            fetch('/api/config/credentials', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    api_key: apiKey,
+                    app_id: appId,
+                    account_type: accountType
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    showNotification('success', 'API credentials saved successfully');
+                    // Hide API modal and show trading config modal
+                    bootstrap.Modal.getInstance(document.getElementById('apiKeyModal')).hide();
+                    const tradingModal = new bootstrap.Modal(document.getElementById('tradingConfigModal'));
+                    tradingModal.show();
+                } else {
+                    showNotification('error', data.message || 'Failed to save credentials');
+                }
+            })
+            .catch(error => {
+                showNotification('error', 'Failed to save credentials: ' + error.message);
+            });
+        }
+
+        function exitApplication() {
+            if (confirm('Are you sure you want to exit? The trading bot requires API configuration to function.')) {
+                window.close();
+            }
+        }
+
+        function useDefaultAppId() {
+            document.getElementById('appId').value = '1089';
+            showNotification('info', 'Default App ID (1089) has been set for testing purposes');
+        }
+
+        function backToApiConfig() {
+            bootstrap.Modal.getInstance(document.getElementById('tradingConfigModal')).hide();
+            const apiModal = new bootstrap.Modal(document.getElementById('apiKeyModal'));
+            apiModal.show();
+        }
+
+        // Trading Configuration Functions
+        function setupTradingModeHandlers() {
+            // Handle trading mode changes
+            document.querySelectorAll('input[name="tradingMode"]').forEach(radio => {
+                radio.addEventListener('change', function() {
+                    updateTradingModeUI(this.value);
+                });
+            });
+            
+            // Handle martingale checkbox
+            document.getElementById('martingaleEnabled').addEventListener('change', function() {
+                const settingsDiv = document.getElementById('martingaleSettings');
+                settingsDiv.style.display = this.checked ? 'block' : 'none';
+            });
+            
+            // Initial UI update
+            updateTradingModeUI('up_down');
+        }
+
+        function updateTradingModeUI(mode) {
+            const durationContainer = document.getElementById('durationContainer');
+            const barrierContainer = document.getElementById('barrierContainer');
+            const digitContainer = document.getElementById('digitContainer');
+            
+            // Hide all optional containers
+            barrierContainer.style.display = 'none';
+            digitContainer.style.display = 'none';
+            
+            // Show relevant containers based on trading mode
+            switch (mode) {
+                case 'touch_no_touch':
+                case 'in_out':
+                    barrierContainer.style.display = 'block';
+                    break;
+                case 'digits':
+                    digitContainer.style.display = 'block';
+                    break;
+                case 'multipliers':
+                case 'accumulators':
+                    durationContainer.style.display = 'none';
+                    break;
+                default:
+                    // Most modes use duration
+                    durationContainer.style.display = 'block';
+            }
+        }
+
+        function updateSymbols() {
+            const market = document.getElementById('marketSelect').value;
+            const symbolSelect = document.getElementById('symbolSelect');
+            
+            const symbols = {
+                forex: [
+                    { value: 'frxEURUSD', text: 'EUR/USD' },
+                    { value: 'frxGBPUSD', text: 'GBP/USD' },
+                    { value: 'frxUSDJPY', text: 'USD/JPY' },
+                    { value: 'frxAUDUSD', text: 'AUD/USD' },
+                    { value: 'frxUSDCHF', text: 'USD/CHF' }
+                ],
+                indices: [
+                    { value: 'OTC_AS51', text: 'Australian Index' },
+                    { value: 'OTC_DJI', text: 'Wall Street Index' },
+                    { value: 'OTC_SPC', text: 'US Index' },
+                    { value: 'OTC_FCHI', text: 'French Index' },
+                    { value: 'OTC_N225', text: 'Japanese Index' }
+                ],
+                commodities: [
+                    { value: 'frxXAUUSD', text: 'Gold/USD' },
+                    { value: 'frxXAGUSD', text: 'Silver/USD' },
+                    { value: 'OTC_OIL_USD', text: 'Oil/USD' },
+                    { value: 'OTC_COPPER', text: 'Copper' }
+                ],
+                cryptocurrencies: [
+                    { value: 'cryBTCUSD', text: 'Bitcoin' },
+                    { value: 'cryETHUSD', text: 'Ethereum' },
+                    { value: 'cryLTCUSD', text: 'Litecoin' },
+                    { value: 'cryBCHUSD', text: 'Bitcoin Cash' }
+                ],
+                synthetic: [
+                    { value: 'R_10', text: 'Volatility 10 Index' },
+                    { value: 'R_25', text: 'Volatility 25 Index' },
+                    { value: 'R_50', text: 'Volatility 50 Index' },
+                    { value: 'R_75', text: 'Volatility 75 Index' },
+                    { value: 'R_100', text: 'Volatility 100 Index' },
+                    { value: '1HZ10V', text: 'Volatility 10 (1s) Index' },
+                    { value: '1HZ25V', text: 'Volatility 25 (1s) Index' },
+                    { value: '1HZ50V', text: 'Volatility 50 (1s) Index' },
+                    { value: '1HZ75V', text: 'Volatility 75 (1s) Index' },
+                    { value: '1HZ100V', text: 'Volatility 100 (1s) Index' }
+                ]
+            };
+            
+            symbolSelect.innerHTML = '';
+            symbols[market].forEach(symbol => {
+                const option = document.createElement('option');
+                option.value = symbol.value;
+                option.textContent = symbol.text;
+                symbolSelect.appendChild(option);
+            });
+        }
+
+        function saveTradingConfiguration() {
+            const config = {
+                market: document.getElementById('marketSelect').value,
+                symbol: document.getElementById('symbolSelect').value,
+                trading_mode: document.querySelector('input[name="tradingMode"]:checked').value,
+                stake_amount: parseFloat(document.getElementById('stakeAmount').value),
+                duration: parseInt(document.getElementById('tradeDuration').value),
+                duration_unit: document.getElementById('durationUnit').value,
+                barrier: document.getElementById('barrierValue').value,
+                digit: document.getElementById('digitValue').value,
+                max_loss: parseFloat(document.getElementById('maxLoss').value),
+                max_profit: parseFloat(document.getElementById('maxProfit').value),
+                martingale_enabled: document.getElementById('martingaleEnabled').checked,
+                martingale_multiplier: parseFloat(document.getElementById('martingaleMultiplier').value)
+            };
+            
+            // Validate configuration
+            if (config.stake_amount < 0.35) {
+                showNotification('error', 'Minimum stake amount is $0.35');
+                return;
+            }
+            
+            if (config.duration < 1) {
+                showNotification('error', 'Duration must be at least 1');
+                return;
+            }
+            
+            // Send configuration to backend
+            fetch('/api/config/trading', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(config)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    showNotification('success', 'Trading configuration saved successfully!');
+                    bootstrap.Modal.getInstance(document.getElementById('tradingConfigModal')).hide();
+                    
+                    // Update UI with new configuration
+                    updateConfigurationDisplay(config);
+                } else {
+                    showNotification('error', data.message || 'Failed to save configuration');
+                }
+            })
+            .catch(error => {
+                showNotification('error', 'Failed to save configuration: ' + error.message);
+            });
+        }
+
+        function updateConfigurationDisplay(config) {
+            // Update the header with current configuration
+            const configInfo = document.createElement('div');
+            configInfo.className = 'alert alert-info mt-3';
+            configInfo.innerHTML = `
+                <h6><i class="fas fa-info-circle me-2"></i>Current Configuration</h6>
+                <div class="row">
+                    <div class="col-md-3">
+                        <strong>Symbol:</strong> ${config.symbol}<br>
+                        <strong>Mode:</strong> ${config.trading_mode.replace('_', ' ').toUpperCase()}
+                    </div>
+                    <div class="col-md-3">
+                        <strong>Stake:</strong> $${config.stake_amount}<br>
+                        <strong>Duration:</strong> ${config.duration} ${config.duration_unit}
+                    </div>
+                    <div class="col-md-3">
+                        <strong>Max Loss:</strong> $${config.max_loss}<br>
+                        <strong>Target Profit:</strong> $${config.max_profit}
+                    </div>
+                    <div class="col-md-3">
+                        <strong>Martingale:</strong> ${config.martingale_enabled ? 'Enabled' : 'Disabled'}<br>
+                        ${config.martingale_enabled ? `<strong>Multiplier:</strong> ${config.martingale_multiplier}x` : ''}
+                    </div>
+                </div>
+            `;
+            
+            // Add to main container
+            const existingConfig = document.querySelector('.config-display');
+            if (existingConfig) {
+                existingConfig.remove();
+            }
+            
+            configInfo.className += ' config-display';
+            document.querySelector('.main-container').insertBefore(configInfo, document.querySelector('.row').nextSibling);
+        }
+
+        function showTradingConfig() {
+            // Load current configuration first
+            loadCurrentConfiguration();
+            const tradingModal = new bootstrap.Modal(document.getElementById('tradingConfigModal'));
+            tradingModal.show();
+        }
+
+        function loadCurrentConfiguration() {
+            fetch('/api/config/current')
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success' && data.config) {
+                    const config = data.config;
+                    
+                    // Populate form with current values
+                    document.getElementById('marketSelect').value = config.market || 'synthetic';
+                    updateSymbols();
+                    document.getElementById('symbolSelect').value = config.symbol || 'R_10';
+                    
+                    const tradingModeRadio = document.querySelector(`input[name="tradingMode"][value="${config.trading_mode || 'up_down'}"]`);
+                    if (tradingModeRadio) {
+                        tradingModeRadio.checked = true;
+                        updateTradingModeUI(config.trading_mode || 'up_down');
+                    }
+                    
+                    document.getElementById('stakeAmount').value = config.stake_amount || 1;
+                    document.getElementById('tradeDuration').value = config.duration || 5;
+                    document.getElementById('durationUnit').value = config.duration_unit || 'm';
+                    document.getElementById('barrierValue').value = config.barrier || '';
+                    document.getElementById('digitValue').value = config.digit || '0';
+                    document.getElementById('maxLoss').value = config.max_loss || 100;
+                    document.getElementById('maxProfit').value = config.max_profit || 50;
+                    document.getElementById('martingaleEnabled').checked = config.martingale_enabled || false;
+                    document.getElementById('martingaleMultiplier').value = config.martingale_multiplier || 2.1;
+                    
+                    // Update martingale settings visibility
+                    const settingsDiv = document.getElementById('martingaleSettings');
+                    settingsDiv.style.display = config.martingale_enabled ? 'block' : 'none';
+                }
+            })
+            .catch(error => {
+                console.error('Failed to load current configuration:', error);
+            });
+        }
+    </script>
+</body>
+</html>

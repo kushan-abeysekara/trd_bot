@@ -1,0 +1,173 @@
+2025-06-30 22:14:07,103 - deriv_api - ERROR - Failed to connect to Deriv API: server rejected WebSocket connection: HTTP 401
+2025-06-30 22:14:07,104 - __main__ - ERROR - Failed to connect to Deriv API
+2025-06-30 22:15:00,165 - database - INFO - Creating database tables...
+2025-06-30 22:15:05,035 - database - INFO - ✅ Database tables created successfully!
+2025-06-30 22:15:05,826 - database - INFO - ✅ Database connection test successful
+2025-06-30 22:15:06,387 - __main__ - INFO - 🚀 Starting Deriv AI Trading Bot...
+2025-06-30 22:15:07,652 - deriv_api - ERROR - Failed to connect to Deriv API: server rejected WebSocket connection: HTTP 401
+2025-06-30 22:15:07,653 - __main__ - ERROR - Failed to connect to Deriv API
+2025-06-30 22:15:07,654 - __main__ - INFO - 🧹 Bot cleanup completed
+2025-06-30 22:15:07,656 - __main__ - INFO - 🏁 Bot shutdown complete
+2025-06-30 22:17:11,477 - database - INFO - Creating database tables...
+2025-06-30 22:17:17,266 - database - INFO - ✅ Database tables created successfully!
+2025-06-30 22:17:17,811 - database - INFO - ✅ Database connection test successful
+2025-06-30 22:17:18,407 - __main__ - INFO - 🚀 Starting Deriv AI Trading Bot...
+2025-06-30 22:17:19,726 - deriv_api - ERROR - Failed to connect to Deriv API: server rejected WebSocket connection: HTTP 401
+2025-06-30 22:17:19,727 - __main__ - ERROR - Failed to connect to Deriv API
+2025-06-30 22:17:19,727 - __main__ - INFO - 🧹 Bot cleanup completed
+2025-06-30 22:17:19,730 - __main__ - INFO - 🏁 Bot shutdown complete
+2025-06-30 22:31:10,873 - database - INFO - Creating database tables...
+2025-06-30 22:31:16,631 - database - INFO - ✅ Database tables created successfully!
+2025-06-30 22:31:17,174 - database - INFO - ✅ Database connection test successful
+2025-06-30 22:31:17,717 - __main__ - INFO - 🚀 Starting Deriv AI Trading Bot...
+2025-06-30 22:31:17,717 - deriv_api - INFO - Connecting to Deriv WebSocket: wss://ws.binaryws.com/websockets/v3?app_id=1089&l=EN&brand=deriv
+2025-06-30 22:31:17,718 - deriv_api - INFO - Using token: oYg6w0KcXr...
+2025-06-30 22:31:18,434 - deriv_api - INFO - Connected to Deriv WebSocket API
+2025-06-30 22:31:18,975 - deriv_api - INFO - Successfully authorized with Deriv API
+2025-06-30 22:31:29,963 - __main__ - ERROR - Could not retrieve account balance
+2025-06-30 22:31:30,508 - __main__ - INFO - 📋 Account Status: ['cashier_locked', 'dxtrade_password_not_set', 'financial_information_not_complete', 'idv_disallowed', 'mt5_password_not_set', 'trading_experience_not_complete']
+2025-06-30 22:31:30,508 - martingale_system - INFO - Martingale system session reset
+2025-06-30 22:31:31,643 - __main__ - INFO - 📊 Started new trading session: session_20250630_223130
+2025-06-30 22:31:31,644 - __main__ - INFO - 🔄 Starting main trading loop...
+2025-06-30 22:31:31,644 - __main__ - WARNING - Trading stopped: Balance too low for safe trading: 0.0
+2025-06-30 22:31:31,645 - __main__ - INFO - Trading stopped due to risk management
+2025-06-30 22:31:31,972 - deriv_api - INFO - Disconnected from Deriv WebSocket API
+2025-06-30 22:31:31,972 - __main__ - INFO - 🧹 Bot cleanup completed
+2025-06-30 22:31:31,973 - __main__ - INFO - 🏁 Bot shutdown complete
+2025-06-30 22:51:58,040 - database - INFO - Creating database tables...
+2025-06-30 22:52:04,099 - database - INFO - ✅ Database tables created successfully!
+2025-06-30 22:52:04,850 - database - INFO - ✅ Database connection test successful
+2025-06-30 22:52:05,901 - __main__ - INFO - 🚀 Starting Deriv AI Trading Bot...
+2025-06-30 22:52:05,901 - deriv_api - INFO - Connecting to Deriv WebSocket: wss://ws.binaryws.com/websockets/v3?app_id=1089
+2025-06-30 22:52:05,901 - deriv_api - INFO - Using token: 6D0lReGW3i...
+2025-06-30 22:52:07,136 - deriv_api - INFO - Connected to Deriv WebSocket API
+2025-06-30 22:52:07,570 - deriv_api - INFO - Successfully authorized with Deriv API
+2025-06-30 22:52:18,587 - __main__ - ERROR - Could not retrieve account balance
+2025-06-30 22:52:19,238 - __main__ - INFO - 📋 Account Status: ['cashier_locked', 'dxtrade_password_not_set', 'financial_information_not_complete', 'idv_disallowed', 'mt5_password_not_set', 'trading_experience_not_complete']
+2025-06-30 22:52:19,238 - martingale_system - INFO - Martingale system session reset
+2025-06-30 22:52:20,318 - __main__ - INFO - 📊 Started new trading session: session_20250630_225219
+2025-06-30 22:52:20,318 - __main__ - INFO - 🔄 Starting main trading loop...
+2025-06-30 22:52:20,319 - __main__ - WARNING - Trading stopped: Balance too low for safe trading: 0.0
+2025-06-30 22:52:20,319 - __main__ - INFO - Trading stopped due to risk management
+2025-06-30 22:52:20,639 - deriv_api - INFO - Disconnected from Deriv WebSocket API
+2025-06-30 22:52:20,639 - __main__ - INFO - 🧹 Bot cleanup completed
+2025-06-30 22:52:20,641 - __main__ - INFO - 🏁 Bot shutdown complete
+2025-07-01 10:19:04,978 - database - INFO - Creating database tables...
+2025-07-01 10:19:11,156 - database - INFO - ✅ Database tables created successfully!
+2025-07-01 10:19:11,699 - database - INFO - ✅ Database connection test successful
+2025-07-01 10:19:12,258 - __main__ - INFO - 🚀 Starting Deriv AI Trading Bot...
+2025-07-01 10:19:12,258 - deriv_api - INFO - 🔄 Connecting to Deriv WebSocket: wss://ws.binaryws.com/websockets/v3?app_id=1089 (attempt 1/3)
+2025-07-01 10:19:13,861 - deriv_api - WARNING - ⚠️ Unexpected ping response: {'echo_req': {'ping': 1, 'req_id': 999999}, 'msg_type': 'ping', 'ping': 'pong', 'req_id': 999999}
+2025-07-01 10:19:13,862 - deriv_api - INFO - ✅ Successfully connected to Deriv WebSocket API
+2025-07-01 10:19:13,862 - deriv_api - INFO - 🎧 Starting message listener...
+2025-07-01 10:19:13,862 - deriv_api - INFO - 💓 Starting ping loop...
+2025-07-01 10:19:14,276 - deriv_api - INFO - Successfully authorized with Deriv API
+2025-07-01 10:19:44,277 - deriv_api - WARNING - ⏱️ Request timeout for req_id 2
+2025-07-01 10:19:44,277 - __main__ - INFO - 💰 Demo Account Balance: $10000.00
+2025-07-01 10:19:44,824 - __main__ - INFO - 📋 Account Status: ['cashier_locked', 'dxtrade_password_not_set', 'financial_information_not_complete', 'idv_disallowed', 'mt5_password_not_set', 'trading_experience_not_complete']
+2025-07-01 10:19:44,824 - martingale_system - INFO - Martingale system session reset
+2025-07-01 10:19:45,934 - __main__ - INFO - 📊 Started new trading session: session_20250701_101944
+2025-07-01 10:19:45,935 - __main__ - INFO - 🔄 Starting main trading loop...
+2025-07-01 10:20:15,945 - deriv_api - WARNING - ⏱️ Request timeout for req_id 4
+2025-07-01 10:22:17,978 - __main__ - INFO - Received signal 2
+2025-07-01 10:22:17,978 - __main__ - INFO - 🛑 Stopping trading bot...
+2025-07-01 10:22:19,366 - __main__ - INFO - 📊 Session ended: session_20250701_101944
+2025-07-01 10:22:19,918 - __main__ - INFO - Total trades: 0
+2025-07-01 10:22:19,919 - __main__ - INFO - No trades
+2025-07-01 10:22:19,919 - __main__ - INFO - Total P&L: $0.00
+2025-07-01 10:22:25,040 - deriv_api - INFO - 🔌 Disconnecting from Deriv WebSocket API...
+2025-07-01 10:22:25,041 - deriv_api - INFO - 🔴 Message listener was cancelled
+2025-07-01 10:22:25,041 - deriv_api - WARNING - 🔴 Message listener stopped
+2025-07-01 10:22:25,042 - deriv_api - INFO - 💓 Ping loop cancelled
+2025-07-01 10:22:25,042 - deriv_api - WARNING - 🔴 Ping loop stopped
+2025-07-01 10:22:25,400 - deriv_api - INFO - ✅ Disconnected from Deriv WebSocket API
+2025-07-01 10:22:25,400 - __main__ - INFO - 🧹 Bot cleanup completed
+2025-07-01 10:22:25,402 - __main__ - INFO - 🏁 Bot shutdown complete
+2025-07-01 10:22:37,071 - database - INFO - Creating database tables...
+2025-07-01 10:22:41,889 - database - INFO - ✅ Database tables created successfully!
+2025-07-01 10:22:42,401 - database - INFO - ✅ Database connection test successful
+2025-07-01 10:22:42,945 - __main__ - INFO - 🚀 Starting Deriv AI Trading Bot...
+2025-07-01 10:22:42,946 - deriv_api - INFO - 🔄 Connecting to Deriv WebSocket: wss://ws.binaryws.com/websockets/v3?app_id=1089 (attempt 1/3)
+2025-07-01 10:22:42,996 - deriv_api - ERROR - ❌ Failed to connect (attempt 1/3): BaseEventLoop.create_connection() got an unexpected keyword argument 'extra_headers'
+2025-07-01 10:22:42,997 - deriv_api - INFO - 🔄 Retrying connection in 10 seconds...
+2025-07-01 10:22:53,002 - deriv_api - INFO - 🔄 Connecting to Deriv WebSocket: wss://ws.binaryws.com/websockets/v3?app_id=1089 (attempt 2/3)
+2025-07-01 10:22:53,003 - deriv_api - ERROR - ❌ Failed to connect (attempt 2/3): BaseEventLoop.create_connection() got an unexpected keyword argument 'extra_headers'
+2025-07-01 10:22:53,003 - deriv_api - INFO - 🔄 Retrying connection in 20 seconds...
+2025-07-01 10:23:13,014 - deriv_api - INFO - 🔄 Connecting to Deriv WebSocket: wss://ws.binaryws.com/websockets/v3?app_id=1089 (attempt 3/3)
+2025-07-01 10:23:13,015 - deriv_api - ERROR - ❌ Failed to connect (attempt 3/3): BaseEventLoop.create_connection() got an unexpected keyword argument 'extra_headers'
+2025-07-01 10:23:13,015 - deriv_api - ERROR - ❌ Max reconnection attempts reached
+2025-07-01 10:23:13,015 - __main__ - ERROR - Failed to connect to Deriv API
+2025-07-01 10:23:13,015 - deriv_api - INFO - 🔌 Disconnecting from Deriv WebSocket API...
+2025-07-01 10:23:13,015 - deriv_api - INFO - ✅ Disconnected from Deriv WebSocket API
+2025-07-01 10:23:13,015 - __main__ - INFO - 🧹 Bot cleanup completed
+2025-07-01 10:23:13,016 - __main__ - INFO - 🏁 Bot shutdown complete
+2025-07-01 10:25:48,480 - database - INFO - Creating database tables...
+2025-07-01 10:25:53,313 - database - INFO - ✅ Database tables created successfully!
+2025-07-01 10:25:53,841 - database - INFO - ✅ Database connection test successful
+2025-07-01 10:25:54,370 - __main__ - INFO - 🚀 Starting Deriv AI Trading Bot...
+2025-07-01 10:25:54,370 - deriv_api - INFO - 🔄 Connecting to Deriv WebSocket: wss://ws.binaryws.com/websockets/v3?app_id=1089 (attempt 1/3)
+2025-07-01 10:25:56,077 - deriv_api - WARNING - ⚠️ Unexpected ping response: {'echo_req': {'ping': 1, 'req_id': 999999}, 'msg_type': 'ping', 'ping': 'pong', 'req_id': 999999}
+2025-07-01 10:25:56,078 - deriv_api - INFO - ✅ Successfully connected to Deriv WebSocket API
+2025-07-01 10:25:56,079 - deriv_api - INFO - 🎧 Starting message listener...
+2025-07-01 10:25:56,080 - deriv_api - INFO - 💓 Starting ping loop...
+2025-07-01 10:25:56,522 - deriv_api - INFO - Successfully authorized with Deriv API
+2025-07-01 10:26:26,525 - deriv_api - WARNING - ⏱️ Request timeout for req_id 2
+2025-07-01 10:26:26,526 - __main__ - INFO - 💰 Demo Account Balance: $10000.00
+2025-07-01 10:26:27,160 - __main__ - INFO - 📋 Account Status: ['cashier_locked', 'dxtrade_password_not_set', 'financial_information_not_complete', 'idv_disallowed', 'mt5_password_not_set', 'trading_experience_not_complete']
+2025-07-01 10:26:27,161 - martingale_system - INFO - Martingale system session reset
+2025-07-01 10:26:28,226 - __main__ - INFO - 📊 Started new trading session: session_20250701_102627
+2025-07-01 10:26:28,226 - __main__ - INFO - 🔄 Starting main trading loop...
+2025-07-01 10:26:58,240 - deriv_api - WARNING - ⏱️ Request timeout for req_id 4
+2025-07-01 10:27:35,832 - database - INFO - Creating database tables...
+2025-07-01 10:27:40,693 - database - INFO - ✅ Database tables created successfully!
+2025-07-01 10:27:41,239 - database - INFO - ✅ Database connection test successful
+2025-07-01 10:27:41,755 - __main__ - INFO - 🚀 Starting Deriv AI Trading Bot...
+2025-07-01 10:27:41,755 - deriv_api - INFO - 🔄 Connecting to Deriv WebSocket: wss://ws.binaryws.com/websockets/v3?app_id=1089 (attempt 1/3)
+2025-07-01 10:27:43,627 - deriv_api - WARNING - ⚠️ Unexpected ping response: {'echo_req': {'ping': 1, 'req_id': 999999}, 'msg_type': 'ping', 'ping': 'pong', 'req_id': 999999}
+2025-07-01 10:27:43,628 - deriv_api - INFO - ✅ Successfully connected to Deriv WebSocket API
+2025-07-01 10:27:43,628 - deriv_api - INFO - 🎧 Starting message listener...
+2025-07-01 10:27:43,629 - deriv_api - INFO - 💓 Starting ping loop...
+2025-07-01 10:27:44,089 - deriv_api - INFO - Successfully authorized with Deriv API
+2025-07-01 10:28:57,458 - database - INFO - Creating database tables...
+2025-07-01 10:29:02,324 - database - INFO - ✅ Database tables created successfully!
+2025-07-01 10:29:02,875 - database - INFO - ✅ Database connection test successful
+2025-07-01 10:29:03,416 - __main__ - INFO - 🚀 Starting Deriv AI Trading Bot...
+2025-07-01 10:29:03,417 - deriv_api - INFO - 🔄 Connecting to Deriv WebSocket: wss://ws.binaryws.com/websockets/v3?app_id=1089 (attempt 1/3)
+2025-07-01 10:29:05,132 - deriv_api - WARNING - ⚠️ Unexpected ping response: {'echo_req': {'ping': 1, 'req_id': 999999}, 'msg_type': 'ping', 'ping': 'pong', 'req_id': 999999}
+2025-07-01 10:29:05,133 - deriv_api - INFO - ✅ Successfully connected to Deriv WebSocket API
+2025-07-01 10:29:05,133 - deriv_api - INFO - 🎧 Starting message listener...
+2025-07-01 10:29:05,134 - deriv_api - INFO - 💓 Starting ping loop...
+2025-07-01 10:29:05,457 - deriv_api - WARNING - Authorization failed: The token is invalid.
+2025-07-01 10:29:05,457 - deriv_api - INFO - Continuing in read-only mode (market data only)
+2025-07-01 10:29:05,770 - __main__ - INFO - 💰 Demo Account Balance: $10000.00
+2025-07-01 10:29:06,091 - martingale_system - INFO - Martingale system session reset
+2025-07-01 10:29:07,178 - __main__ - INFO - 📊 Started new trading session: session_20250701_102906
+2025-07-01 10:29:07,179 - __main__ - INFO - 🔄 Starting main trading loop...
+2025-07-01 10:44:23,351 - database - INFO - Creating database tables...
+2025-07-01 10:44:28,320 - database - INFO - ✅ Database tables created successfully!
+2025-07-01 10:44:28,852 - database - INFO - ✅ Database connection test successful
+2025-07-01 10:44:29,425 - __main__ - INFO - 🚀 Starting Deriv AI Trading Bot...
+2025-07-01 10:44:29,426 - deriv_api - INFO - 🔄 Connecting to Deriv WebSocket: wss://ws.binaryws.com/websockets/v3?app_id=1089 (attempt 1/3)
+2025-07-01 10:44:31,136 - deriv_api - WARNING - ⚠️ Unexpected ping response: {'echo_req': {'ping': 1, 'req_id': 999999}, 'msg_type': 'ping', 'ping': 'pong', 'req_id': 999999}
+2025-07-01 10:44:31,137 - deriv_api - INFO - ✅ Successfully connected to Deriv WebSocket API
+2025-07-01 10:44:31,138 - deriv_api - INFO - 🎧 Starting message listener...
+2025-07-01 10:44:31,139 - deriv_api - INFO - 💓 Starting ping loop...
+2025-07-01 10:44:31,590 - deriv_api - INFO - Successfully authorized with Deriv API
+2025-07-01 10:45:01,594 - deriv_api - WARNING - ⏱️ Request timeout for req_id 2
+2025-07-01 10:45:01,595 - __main__ - INFO - 💰 Demo Account Balance: $10000.00
+2025-07-01 10:45:02,186 - __main__ - INFO - 📋 Account Status: ['cashier_locked', 'dxtrade_password_not_set', 'financial_information_not_complete', 'idv_disallowed', 'mt5_password_not_set', 'trading_experience_not_complete']
+2025-07-01 10:45:02,187 - martingale_system - INFO - Martingale system session reset
+2025-07-01 10:45:03,280 - __main__ - INFO - 📊 Started new trading session: session_20250701_104502
+2025-07-01 10:45:03,281 - __main__ - INFO - 🔄 Starting main trading loop...
+2025-07-01 10:45:33,294 - deriv_api - WARNING - ⏱️ Request timeout for req_id 4
+2025-07-01 12:26:39,729 - deriv_api - WARNING - ⏱️ Request timeout for req_id 612
+2025-07-01 12:45:08,030 - __main__ - WARNING - Trading stopped: Too long since last win: 2:00:05.840238
+2025-07-01 12:45:08,032 - __main__ - INFO - Trading stopped due to risk management
+2025-07-01 12:45:08,034 - deriv_api - INFO - 🔌 Disconnecting from Deriv WebSocket API...
+2025-07-01 12:45:08,038 - deriv_api - INFO - 🔴 Message listener was cancelled
+2025-07-01 12:45:08,039 - deriv_api - WARNING - 🔴 Message listener stopped
+2025-07-01 12:45:08,039 - deriv_api - INFO - 💓 Ping loop cancelled
+2025-07-01 12:45:08,039 - deriv_api - WARNING - 🔴 Ping loop stopped
+2025-07-01 12:45:08,378 - deriv_api - INFO - ✅ Disconnected from Deriv WebSocket API
+2025-07-01 12:45:08,379 - __main__ - INFO - 🧹 Bot cleanup completed
+2025-07-01 12:45:08,394 - __main__ - INFO - 🏁 Bot shutdown complete
