@@ -131,7 +131,7 @@ export const AuthProvider = ({ children }) => {
   // Resend verification function
   const resendVerification = async (userData) => {
     try {
-      const response = await authAPI.resendVerification(userData);
+      const response = await authAPI.resendCode(userData);
       return response.data;
     } catch (error) {
       const errorMessage = error.response?.data?.error || 'Failed to resend verification code';

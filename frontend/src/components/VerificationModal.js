@@ -10,7 +10,7 @@ const VerificationModal = ({
   onSuccess, 
   verificationType = 'email' 
 }) => {
-  const { verify } = useAuth();
+  const { verify, resendVerification } = useAuth();
   const [code, setCode] = useState(['', '', '', '', '', '']);
   const [isLoading, setIsLoading] = useState(false);
   const [timer, setTimer] = useState(60);
@@ -92,7 +92,6 @@ const VerificationModal = ({
     }
 
     try {
-      const { resendVerification } = useAuth();
       await resendVerification({ user_id: user.id });
       toast.success('Verification code sent!');
       setTimer(60);
@@ -203,3 +202,4 @@ const VerificationModal = ({
 };
 
 export default VerificationModal;
+
