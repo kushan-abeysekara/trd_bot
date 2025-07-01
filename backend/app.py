@@ -68,48 +68,26 @@ def create_app():
     @app.route('/api/health')
     def health_check():
         health_status = {
-            'status': 'healthy',ot API',
-            'message': 'TradingBot API is running',
-            'port': os.getenv('PORT', '8080'),
-            'environment': os.getenv('FLASK_ENV', 'development')
-        }       'health': '/api/health',
-                'auth': '/api/auth',
-        # Test database connectionauth/register',
-        try:    'login': '/api/auth/login'
-            db.engine.execute('SELECT 1')
-            health_status['database'] = 'connected'
-        except Exception as e:
-            health_status['database'] = 'disconnected'
-            health_status['database_error'] = str(e)
-            health_status['status'] = 'degraded'
-        return jsonify({
-        status_code = 200 if health_status['status'] in ['healthy', 'degraded'] else 500
-        return jsonify(health_status), status_code
-            'endpoints': {
-    # Root health check for load balancers
-    @app.route('/health')/api/auth',
-    def root_health_check():'/api/auth/register',
-        return jsonify({'status': 'ok'}), 200
-                'verify': '/api/auth/verify',
-    return app  'resend-verification': '/api/auth/resend-verification',
-                'profile': '/api/auth/profile',
-if __name__ == '__main__':'/api/auth/logout'
-    app = create_app()
-    port = int(os.getenv('PORT', 8080))
-    app.run(debug=True, host='0.0.0.0', port=port)
-    # Enhanced health check endpoint
-    @app.route('/api/health')
-    def health_check():
-        health_status = {
             'status': 'healthy',
             'message': 'TradingBot API is running',
             'port': os.getenv('PORT', '8080'),
-            'environment': os.getenv('FLASK_ENV', 'development')
+            'environment': os.getenv('FLASK_ENV', 'development'),
+            'endpoints': {
+                'health': '/api/health',
+                'auth': '/api/auth',
+                'register': '/api/auth/register',
+                'login': '/api/auth/login',
+                'verify': '/api/auth/verify',
+                'resend-verification': '/api/auth/resend-verification',
+                'profile': '/api/auth/profile',
+                'logout': '/api/auth/logout'
+            }
         }
         
         # Test database connection
         try:
-            db.engine.execute('SELECT 1')
+            with db.engine.connect() as connection:
+                connection.execute(db.text('SELECT 1'))
             health_status['database'] = 'connected'
         except Exception as e:
             health_status['database'] = 'disconnected'

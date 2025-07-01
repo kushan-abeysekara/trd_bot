@@ -13,5 +13,7 @@ marshmallow-sqlalchemy==0.29.0
 email-validator==2.1.0
 phonenumbers==8.13.25
 cryptography==43.0.3
+# Database drivers
+psycopg2-binary==2.9.9
 # Python 3.13 compatibility
 typing-extensions>=4.8.0
