@@ -64,13 +64,36 @@ def create_app():
     def missing_token_callback(error):
         return jsonify({'error': 'Authorization token is required'}), 401
     
-    # Health check endpoint
+    # Enhanced health check endpoint
     @app.route('/api/health')
     def health_check():
-        return jsonify({'status': 'healthy', 'message': 'TradingBot API is running'}), 200
+        health_status = {
+            'status': 'healthy',
+            'message': 'TradingBot API is running',
+            'port': os.getenv('PORT', '8080'),
+            'environment': os.getenv('FLASK_ENV', 'development')
+        }
+        
+        # Test database connection
+        try:
+            db.engine.execute('SELECT 1')
+            health_status['database'] = 'connected'
+        except Exception as e:
+            health_status['database'] = 'disconnected'
+            health_status['database_error'] = str(e)
+            health_status['status'] = 'degraded'
+        
+        status_code = 200 if health_status['status'] in ['healthy', 'degraded'] else 500
+        return jsonify(health_status), status_code
+    
+    # Root health check for load balancers
+    @app.route('/health')
+    def root_health_check():
+        return jsonify({'status': 'ok'}), 200
     
     return app
 
 if __name__ == '__main__':
     app = create_app()
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    port = int(os.getenv('PORT', 8080))
+    app.run(debug=True, host='0.0.0.0', port=port)
