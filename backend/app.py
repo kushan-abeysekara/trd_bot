@@ -26,8 +26,8 @@ def create_app():
     db.init_app(app)
     jwt = JWTManager(app)
     
-    # Configure CORS with more permissive settings for development
-    cors_origins = os.getenv('CORS_ORIGINS', 'http://localhost:3000').split(',')
+    # Configure CORS with deployed frontend URL
+    cors_origins = os.getenv('CORS_ORIGINS', 'http://localhost:3000,https://tradingbot-4iuxi.ondigitalocean.app').split(',')
     CORS(app, origins=cors_origins, supports_credentials=True, 
          allow_headers=['Content-Type', 'Authorization'],
          methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])
@@ -64,6 +64,39 @@ def create_app():
     def missing_token_callback(error):
         return jsonify({'error': 'Authorization token is required'}), 401
     
+    # Enhanced health check endpoint
+    @app.route('/api/health')
+    def health_check():
+        health_status = {
+            'status': 'healthy',ot API',
+            'message': 'TradingBot API is running',
+            'port': os.getenv('PORT', '8080'),
+            'environment': os.getenv('FLASK_ENV', 'development')
+        }       'health': '/api/health',
+                'auth': '/api/auth',
+        # Test database connectionauth/register',
+        try:    'login': '/api/auth/login'
+            db.engine.execute('SELECT 1')
+            health_status['database'] = 'connected'
+        except Exception as e:
+            health_status['database'] = 'disconnected'
+            health_status['database_error'] = str(e)
+            health_status['status'] = 'degraded'
+        return jsonify({
+        status_code = 200 if health_status['status'] in ['healthy', 'degraded'] else 500
+        return jsonify(health_status), status_code
+            'endpoints': {
+    # Root health check for load balancers
+    @app.route('/health')/api/auth',
+    def root_health_check():'/api/auth/register',
+        return jsonify({'status': 'ok'}), 200
+                'verify': '/api/auth/verify',
+    return app  'resend-verification': '/api/auth/resend-verification',
+                'profile': '/api/auth/profile',
+if __name__ == '__main__':'/api/auth/logout'
+    app = create_app()
+    port = int(os.getenv('PORT', 8080))
+    app.run(debug=True, host='0.0.0.0', port=port)
     # Enhanced health check endpoint
     @app.route('/api/health')
     def health_check():
