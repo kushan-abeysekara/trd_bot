@@ -9,7 +9,7 @@ load_dotenv()
 
 # Import models and routes
 from models import db
-from routes import auth_bp
+from routes.auth import auth_bp
 
 def create_app():
     """Create and configure the Flask application"""
@@ -26,9 +26,11 @@ def create_app():
     db.init_app(app)
     jwt = JWTManager(app)
     
-    # Configure CORS
+    # Configure CORS with more permissive settings for development
     cors_origins = os.getenv('CORS_ORIGINS', 'http://localhost:3000').split(',')
-    CORS(app, origins=cors_origins, supports_credentials=True)
+    CORS(app, origins=cors_origins, supports_credentials=True, 
+         allow_headers=['Content-Type', 'Authorization'],
+         methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])
     
     # Register blueprints
     app.register_blueprint(auth_bp)

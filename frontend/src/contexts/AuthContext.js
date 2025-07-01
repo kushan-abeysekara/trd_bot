@@ -97,16 +97,13 @@ export const AuthProvider = ({ children }) => {
 
   // Register function
   const register = async (userData) => {
-    dispatch({ type: 'LOGIN_START' });
     try {
       const response = await authAPI.register(userData);
+      // Don't dispatch LOGIN_START or LOGIN_FAILURE for registration
+      // Registration doesn't log the user in immediately
       return response.data;
     } catch (error) {
       const errorMessage = error.response?.data?.error || 'Registration failed';
-      dispatch({
-        type: 'LOGIN_FAILURE',
-        payload: errorMessage
-      });
       throw new Error(errorMessage);
     }
   };
@@ -131,12 +128,24 @@ export const AuthProvider = ({ children }) => {
     dispatch({ type: 'LOGOUT' });
   };
 
+  // Resend verification function
+  const resendVerification = async (userData) => {
+    try {
+      const response = await authAPI.resendVerification(userData);
+      return response.data;
+    } catch (error) {
+      const errorMessage = error.response?.data?.error || 'Failed to resend verification code';
+      throw new Error(errorMessage);
+    }
+  };
+
   const value = {
     ...state,
     login,
     register,
     verify,
-    logout
+    logout,
+    resendVerification
   };
 
   return (

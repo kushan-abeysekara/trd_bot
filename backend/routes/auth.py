@@ -88,14 +88,26 @@ def register():
         db.session.add(user)
         db.session.commit()
         
-        # Send verification code
+        # Send verification code - don't fail registration if SMS fails
+        sms_sent = False
+        sms_error_message = None
         if mobile_number:
-            sms_result = sms_service.send_verification_sms(mobile_number, verification_code)
-            if not sms_result['success']:
-                # If SMS fails, we might want to log this but still return success
-                print(f"SMS sending failed: {sms_result['message']}")
+            try:
+                print(f"Attempting to send SMS to: {mobile_number}")
+                sms_result = sms_service.send_verification_sms(mobile_number, verification_code)
+                print(f"SMS Result: {sms_result}")
+                
+                if sms_result['success']:
+                    sms_sent = True
+                    print("SMS sent successfully!")
+                else:
+                    sms_error_message = sms_result['message']
+                    print(f"SMS sending failed: {sms_result['message']}")
+            except Exception as sms_error:
+                sms_error_message = str(sms_error)
+                print(f"SMS sending error: {str(sms_error)}")
         
-        return jsonify({
+        response_data = {
             'message': 'Registration successful. Please verify your account.',
             'user': {
                 'id': user.id,
@@ -105,11 +117,19 @@ def register():
                 'last_name': user.last_name
             },
             'verification_required': True,
-            'verification_method': 'mobile' if mobile_number else 'email'
-        }), 201
+            'verification_method': 'mobile' if mobile_number else 'email',
+            'sms_sent': sms_sent
+        }
+        
+        # Add SMS error info for debugging (only in development)
+        if not sms_sent and sms_error_message:
+            response_data['sms_error'] = sms_error_message
+        
+        return jsonify(response_data), 201
         
     except Exception as e:
         db.session.rollback()
+        print(f"Registration error: {str(e)}")
         return jsonify({'error': 'Registration failed', 'details': str(e)}), 500
 
 @auth_bp.route('/verify', methods=['POST'])
@@ -249,16 +269,39 @@ def resend_verification():
         user.verification_code_expires = verification_expires
         db.session.commit()
         
-        # Send verification code
+        # Send verification code - don't fail if SMS fails
+        sms_sent = False
+        sms_error_message = None
         if user.mobile_number:
-            sms_result = sms_service.send_verification_sms(user.mobile_number, verification_code)
-            if not sms_result['success']:
-                return jsonify({'error': 'Failed to send verification code'}), 500
+            try:
+                print(f"Resending SMS to: {user.mobile_number}")
+                sms_result = sms_service.send_verification_sms(user.mobile_number, verification_code)
+                print(f"Resend SMS Result: {sms_result}")
+                
+                if sms_result['success']:
+                    sms_sent = True
+                    print("SMS resent successfully!")
+                else:
+                    sms_error_message = sms_result['message']
+                    print(f"SMS resending failed: {sms_result['message']}")
+            except Exception as sms_error:
+                sms_error_message = str(sms_error)
+                print(f"SMS resending error: {str(sms_error)}")
         
-        return jsonify({'message': 'Verification code sent successfully'}), 200
+        response_data = {
+            'message': 'Verification code sent successfully' if sms_sent else 'Verification code generated but SMS delivery may have failed',
+            'sms_sent': sms_sent
+        }
+        
+        # Add SMS error info for debugging (only in development)
+        if not sms_sent and sms_error_message:
+            response_data['sms_error'] = sms_error_message
+        
+        return jsonify(response_data), 200
         
     except Exception as e:
         db.session.rollback()
+        print(f"Resend verification error: {str(e)}")
         return jsonify({'error': 'Failed to resend verification code', 'details': str(e)}), 500
 
 @auth_bp.route('/profile', methods=['GET'])

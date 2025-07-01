@@ -50,7 +50,7 @@ const RegisterPage = () => {
     } catch (error) {
       toast.error(error.message);
     } finally {
-      setIsLoading(false);
+      setIsLoading(false); // This ensures loading stops regardless of success/failure
     }
   };
 

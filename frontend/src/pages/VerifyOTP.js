@@ -1,22 +1,33 @@
 import React, { useState, useEffect } from 'react';
-import { X, Mail, Phone, Clock } from 'lucide-react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { Mail, Phone, Clock, ArrowLeft } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
 
-const VerificationModal = ({ 
-  isOpen, 
-  onClose, 
-  user, 
-  onSuccess, 
-  verificationType = 'email' 
-}) => {
-  const { verify } = useAuth();
+const VerifyOTP = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { verify, resendVerification } = useAuth();
+  
   const [code, setCode] = useState(['', '', '', '', '', '']);
   const [isLoading, setIsLoading] = useState(false);
-  const [timer, setTimer] = useState(60);
+  const [isResending, setIsResending] = useState(false);
+  const [timer, setTimer] = useState(600); // 10 minutes = 600 seconds
   const [isTimerActive, setIsTimerActive] = useState(true);
 
-  // Timer effect
+  // Get user data from location state
+  const user = location.state?.user;
+  const verificationType = location.state?.verificationType || 'mobile';
+
+  // Redirect if no user data
+  useEffect(() => {
+    if (!user) {
+      toast.error('No verification data found. Please register again.');
+      navigate('/register');
+    }
+  }, [user, navigate]);
+
+  // Timer effect - 10 minutes countdown
   useEffect(() => {
     let interval = null;
     if (isTimerActive && timer > 0) {
@@ -25,9 +36,17 @@ const VerificationModal = ({
       }, 1000);
     } else if (timer === 0) {
       setIsTimerActive(false);
+      toast.error('Verification code expired. Please request a new one.');
     }
     return () => clearInterval(interval);
   }, [isTimerActive, timer]);
+
+  // Format timer display
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
 
   const handleCodeChange = (index, value) => {
     if (value.length > 1) return;
@@ -73,9 +92,10 @@ const VerificationModal = ({
       }
 
       await verify(verificationData);
-      onSuccess();
+      toast.success('Account verified successfully!');
+      navigate('/dashboard');
     } catch (error) {
-      toast.error(error.message);
+      toast.error(error.message || 'Verification failed');
       // Reset code on error
       setCode(['', '', '', '', '', '']);
       const firstInput = document.getElementById('code-0');
@@ -86,44 +106,40 @@ const VerificationModal = ({
   };
 
   const handleResendCode = async () => {
-    if (!user?.id) {
-      toast.error('User information not available');
-      return;
-    }
-
+    setIsResending(true);
     try {
-      const { resendVerification } = useAuth();
-      await resendVerification({ user_id: user.id });
-      toast.success('Verification code sent!');
-      setTimer(60);
+      const response = await resendVerification({ user_id: user.id });
+      toast.success('Verification code sent successfully!');
+      setTimer(600); // Reset to 10 minutes
       setIsTimerActive(true);
-      // Reset the code inputs
+      // Reset code inputs
       setCode(['', '', '', '', '', '']);
       const firstInput = document.getElementById('code-0');
       if (firstInput) firstInput.focus();
     } catch (error) {
-      toast.error('Failed to resend code');
+      toast.error(error.message || 'Failed to resend code');
+    } finally {
+      setIsResending(false);
     }
   };
 
-  if (!isOpen) return null;
+  if (!user) {
+    return null; // Will redirect via useEffect
+  }
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-md w-full space-y-8">
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-semibold text-gray-900">Verify Your Account</h2>
+        <div className="text-center">
           <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
+            onClick={() => navigate('/register')}
+            className="inline-flex items-center text-blue-600 hover:text-blue-700 mb-6"
           >
-            <X className="w-6 h-6" />
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Back to Registration
           </button>
-        </div>
-
-        {/* Content */}
-        <div className="text-center mb-6">
+          
           <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
             {verificationType === 'email' ? (
               <Mail className="w-8 h-8 text-blue-600" />
@@ -131,17 +147,22 @@ const VerificationModal = ({
               <Phone className="w-8 h-8 text-blue-600" />
             )}
           </div>
+          
+          <h2 className="text-3xl font-bold text-gray-900 mb-2">
+            Verify Your Account
+          </h2>
+          
           <p className="text-gray-600 mb-2">
             We've sent a 6-digit verification code to
           </p>
-          <p className="font-medium text-gray-900">
-            {verificationType === 'email' ? user?.email : user?.mobile_number}
+          <p className="font-medium text-gray-900 mb-6">
+            {verificationType === 'email' ? user.email : user.mobile_number}
           </p>
         </div>
 
         {/* Verification Form */}
-        <form onSubmit={handleSubmit}>
-          <div className="flex justify-center space-x-2 mb-6">
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="flex justify-center space-x-2">
             {code.map((digit, index) => (
               <input
                 key={index}
@@ -150,36 +171,56 @@ const VerificationModal = ({
                 value={digit}
                 onChange={(e) => handleCodeChange(index, e.target.value)}
                 onKeyDown={(e) => handleKeyDown(index, e)}
-                className="w-12 h-12 text-center text-xl font-semibold border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-12 h-12 text-center text-xl font-semibold border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
                 maxLength={1}
                 inputMode="numeric"
                 pattern="[0-9]*"
+                autoComplete="off"
               />
             ))}
           </div>
 
           {/* Timer */}
-          <div className="text-center mb-6">
+          <div className="text-center">
             {isTimerActive ? (
               <div className="flex items-center justify-center text-gray-500">
                 <Clock className="w-4 h-4 mr-2" />
-                <span>Resend code in {timer}s</span>
+                <span>Code expires in {formatTime(timer)}</span>
               </div>
             ) : (
+              <div className="text-red-500">
+                <p className="mb-2">Verification code expired</p>
+                <button
+                  type="button"
+                  onClick={handleResendCode}
+                  disabled={isResending}
+                  className="text-blue-600 hover:text-blue-700 font-medium disabled:opacity-50"
+                >
+                  {isResending ? 'Sending...' : 'Request new code'}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Resend button when timer is active */}
+          {isTimerActive && (
+            <div className="text-center">
+              <p className="text-gray-500 text-sm mb-2">Didn't receive the code?</p>
               <button
                 type="button"
                 onClick={handleResendCode}
-                className="text-blue-600 hover:text-blue-700 font-medium"
+                disabled={isResending}
+                className="text-blue-600 hover:text-blue-700 font-medium disabled:opacity-50"
               >
-                Resend verification code
+                {isResending ? 'Sending...' : 'Resend code'}
               </button>
-            )}
-          </div>
+            </div>
+          )}
 
           {/* Submit Button */}
           <button
             type="submit"
-            disabled={isLoading || code.join('').length !== 6}
+            disabled={isLoading || code.join('').length !== 6 || !isTimerActive}
             className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
           >
             {isLoading ? (
@@ -194,12 +235,13 @@ const VerificationModal = ({
         </form>
 
         {/* Help Text */}
-        <div className="mt-4 text-center text-sm text-gray-500">
-          Didn't receive the code? Check your spam folder or try resending.
+        <div className="text-center text-sm text-gray-500">
+          <p>Didn't receive the code?</p>
+          <p>Check your messages or contact support if the issue persists.</p>
         </div>
       </div>
     </div>
   );
 };
 
-export default VerificationModal;
+export default VerifyOTP;

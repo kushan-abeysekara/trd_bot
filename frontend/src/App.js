@@ -4,6 +4,7 @@ import { Toaster } from 'react-hot-toast';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import Dashboard from './pages/Dashboard';
+import VerifyOTP from './pages/VerifyOTP';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 
 // Protected Route Component
@@ -41,6 +42,7 @@ function App() {
     <AuthProvider>
       <Router>
         <div className="App">
+          <Toaster position="top-right" />
           <Routes>
             <Route path="/" element={<Navigate to="/login" />} />
             <Route 
@@ -67,8 +69,8 @@ function App() {
                 </ProtectedRoute>
               } 
             />
+            <Route path="/verify-otp" element={<VerifyOTP />} />
           </Routes>
-          <Toaster position="top-right" />
         </div>
       </Router>
     </AuthProvider>
