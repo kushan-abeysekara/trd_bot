@@ -70,7 +70,7 @@ def create_app():
         health_status = {
             'status': 'healthy',
             'message': 'TradingBot API is running',
-            'port': os.getenv('PORT', '8080'),
+            'port': os.getenv('PORT', '5000'),
             'environment': os.getenv('FLASK_ENV', 'development'),
             'endpoints': {
                 'health': '/api/health',
@@ -106,5 +106,5 @@ def create_app():
 
 if __name__ == '__main__':
     app = create_app()
-    port = int(os.getenv('PORT', 8080))
+    port = int(os.getenv('PORT', 5000))
     app.run(debug=True, host='0.0.0.0', port=port)
