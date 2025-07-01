@@ -1,0 +1,298 @@
+from flask import Blueprint, request, jsonify
+from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
+from datetime import datetime, timedelta
+import random
+import string
+
+from models import User, UserSession, db
+from utils import SMSService, ValidationService
+
+auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
+sms_service = SMSService()
+validation_service = ValidationService()
+
+@auth_bp.route('/register', methods=['POST'])
+def register():
+    """Register a new user with email or mobile number"""
+    try:
+        data = request.get_json()
+        
+        # Validate required fields
+        required_fields = ['first_name', 'last_name', 'password']
+        for field in required_fields:
+            if not data.get(field):
+                return jsonify({'error': f'{field} is required'}), 400
+        
+        # Check if email or mobile is provided
+        email = data.get('email')
+        mobile_number = data.get('mobile_number')
+        
+        if not email and not mobile_number:
+            return jsonify({'error': 'Either email or mobile number is required'}), 400
+        
+        if email and mobile_number:
+            return jsonify({'error': 'Please provide either email or mobile number, not both'}), 400
+        
+        # Validate input data
+        first_name_valid, first_name_msg = validation_service.validate_name(data['first_name'])
+        if not first_name_valid:
+            return jsonify({'error': f'First name: {first_name_msg}'}), 400
+        
+        last_name_valid, last_name_msg = validation_service.validate_name(data['last_name'])
+        if not last_name_valid:
+            return jsonify({'error': f'Last name: {last_name_msg}'}), 400
+        
+        password_valid, password_msg = validation_service.validate_password(data['password'])
+        if not password_valid:
+            return jsonify({'error': password_msg}), 400
+        
+        # Validate email if provided
+        if email:
+            email_valid, email_msg = validation_service.validate_email_address(email)
+            if not email_valid:
+                return jsonify({'error': email_msg}), 400
+            email = email_msg  # Use the normalized email
+            
+            # Check if email already exists
+            if User.query.filter_by(email=email).first():
+                return jsonify({'error': 'Email already registered'}), 409
+        
+        # Validate mobile number if provided
+        if mobile_number:
+            mobile_valid, mobile_msg = validation_service.validate_mobile_number(mobile_number)
+            if not mobile_valid:
+                return jsonify({'error': mobile_msg}), 400
+            mobile_number = mobile_msg  # Use the normalized mobile number
+            
+            # Check if mobile number already exists
+            if User.query.filter_by(mobile_number=mobile_number).first():
+                return jsonify({'error': 'Mobile number already registered'}), 409
+        
+        # Generate verification code
+        verification_code = sms_service.generate_verification_code()
+        verification_expires = datetime.utcnow() + timedelta(minutes=10)
+        
+        # Create new user
+        user = User(
+            email=email,
+            mobile_number=mobile_number,
+            first_name=first_name_msg,
+            last_name=last_name_msg,
+            verification_code=verification_code,
+            verification_code_expires=verification_expires,
+            is_verified=False
+        )
+        user.set_password(data['password'])
+        
+        # Save user to database
+        db.session.add(user)
+        db.session.commit()
+        
+        # Send verification code
+        if mobile_number:
+            sms_result = sms_service.send_verification_sms(mobile_number, verification_code)
+            if not sms_result['success']:
+                # If SMS fails, we might want to log this but still return success
+                print(f"SMS sending failed: {sms_result['message']}")
+        
+        return jsonify({
+            'message': 'Registration successful. Please verify your account.',
+            'user': {
+                'id': user.id,
+                'email': user.email,
+                'mobile_number': user.mobile_number,
+                'first_name': user.first_name,
+                'last_name': user.last_name
+            },
+            'verification_required': True,
+            'verification_method': 'mobile' if mobile_number else 'email'
+        }), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': 'Registration failed', 'details': str(e)}), 500
+
+@auth_bp.route('/verify', methods=['POST'])
+def verify_account():
+    """Verify user account with verification code"""
+    try:
+        data = request.get_json()
+        
+        if not data.get('user_id') or not data.get('verification_code'):
+            return jsonify({'error': 'User ID and verification code are required'}), 400
+        
+        # Find user
+        user = User.query.get(data['user_id'])
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+        
+        # Check if already verified
+        if user.is_verified:
+            return jsonify({'error': 'Account already verified'}), 400
+        
+        # Check verification code
+        if user.verification_code != data['verification_code']:
+            return jsonify({'error': 'Invalid verification code'}), 400
+        
+        # Check if code expired
+        if user.verification_code_expires < datetime.utcnow():
+            return jsonify({'error': 'Verification code expired'}), 400
+        
+        # Verify user
+        user.is_verified = True
+        user.verification_code = None
+        user.verification_code_expires = None
+        db.session.commit()
+        
+        # Send welcome SMS
+        if user.mobile_number:
+            sms_service.send_welcome_sms(user.mobile_number, user.first_name)
+        
+        # Create access token
+        access_token = create_access_token(identity=user.id)
+        
+        return jsonify({
+            'message': 'Account verified successfully',
+            'token': access_token,
+            'user': user.to_dict()
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': 'Verification failed', 'details': str(e)}), 500
+
+@auth_bp.route('/login', methods=['POST'])
+def login():
+    """Login user with email/mobile and password"""
+    try:
+        data = request.get_json()
+        
+        email = data.get('email')
+        mobile_number = data.get('mobile_number')
+        password = data.get('password')
+        
+        if not password:
+            return jsonify({'error': 'Password is required'}), 400
+        
+        if not email and not mobile_number:
+            return jsonify({'error': 'Email or mobile number is required'}), 400
+        
+        # Find user by email or mobile number
+        if email:
+            user = User.query.filter_by(email=email).first()
+        else:
+            user = User.query.filter_by(mobile_number=mobile_number).first()
+        
+        if not user:
+            return jsonify({'error': 'Invalid credentials'}), 401
+        
+        # Check password
+        if not user.check_password(password):
+            return jsonify({'error': 'Invalid credentials'}), 401
+        
+        # Check if user is active
+        if not user.is_active:
+            return jsonify({'error': 'Account is deactivated'}), 401
+        
+        # Check if user is verified
+        if not user.is_verified:
+            return jsonify({
+                'error': 'Account not verified',
+                'user_id': user.id,
+                'verification_required': True
+            }), 401
+        
+        # Create access token
+        access_token = create_access_token(identity=user.id)
+        
+        # Create user session
+        session = UserSession(
+            user_id=user.id,
+            token=access_token,
+            ip_address=request.remote_addr,
+            user_agent=request.headers.get('User-Agent'),
+            expires_at=datetime.utcnow() + timedelta(hours=24)
+        )
+        db.session.add(session)
+        db.session.commit()
+        
+        return jsonify({
+            'message': 'Login successful',
+            'token': access_token,
+            'user': user.to_dict()
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'error': 'Login failed', 'details': str(e)}), 500
+
+@auth_bp.route('/resend-verification', methods=['POST'])
+def resend_verification():
+    """Resend verification code"""
+    try:
+        data = request.get_json()
+        
+        if not data.get('user_id'):
+            return jsonify({'error': 'User ID is required'}), 400
+        
+        user = User.query.get(data['user_id'])
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+        
+        if user.is_verified:
+            return jsonify({'error': 'Account already verified'}), 400
+        
+        # Generate new verification code
+        verification_code = sms_service.generate_verification_code()
+        verification_expires = datetime.utcnow() + timedelta(minutes=10)
+        
+        user.verification_code = verification_code
+        user.verification_code_expires = verification_expires
+        db.session.commit()
+        
+        # Send verification code
+        if user.mobile_number:
+            sms_result = sms_service.send_verification_sms(user.mobile_number, verification_code)
+            if not sms_result['success']:
+                return jsonify({'error': 'Failed to send verification code'}), 500
+        
+        return jsonify({'message': 'Verification code sent successfully'}), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': 'Failed to resend verification code', 'details': str(e)}), 500
+
+@auth_bp.route('/profile', methods=['GET'])
+@jwt_required()
+def get_profile():
+    """Get user profile"""
+    try:
+        user_id = get_jwt_identity()
+        user = User.query.get(user_id)
+        
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+        
+        return jsonify({'user': user.to_dict()}), 200
+        
+    except Exception as e:
+        return jsonify({'error': 'Failed to get profile', 'details': str(e)}), 500
+
+@auth_bp.route('/logout', methods=['POST'])
+@jwt_required()
+def logout():
+    """Logout user"""
+    try:
+        user_id = get_jwt_identity()
+        
+        # Deactivate user sessions
+        UserSession.query.filter_by(user_id=user_id, is_active=True).update({'is_active': False})
+        db.session.commit()
+        
+        return jsonify({'message': 'Logged out successfully'}), 200
+        
+    except Exception as e:
+        return jsonify({'error': 'Logout failed', 'details': str(e)}), 500
+
+@auth_bp.route('/test', methods=['GET'])
+def test():
+    return jsonify({'message': 'Auth routes working'}), 200
