@@ -23,6 +23,7 @@ import ApiTokenSetup from '../components/ApiTokenSetup';
 import VolatilityChart from '../components/VolatilityChart';
 import LastDigitDisplay from '../components/LastDigitDisplay';
 import AIMarketAnalyzer from '../components/AIMarketAnalyzer';
+import AITradingBot from '../components/AITradingBot';
 import toast from 'react-hot-toast';
 
 const Dashboard = () => {
@@ -605,6 +606,9 @@ const Dashboard = () => {
               currentPrice={currentPrice}
               selectedIndex={currentIndexName}
             />
+            
+            {/* AI Trading Bot */}
+            <AITradingBot user={user} />
             
             {/* Auto Trading Control */}
             <div className="bg-white rounded-lg shadow-md border border-gray-100">

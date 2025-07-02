@@ -101,40 +101,117 @@ export const tradingAPI = {
   getRealTimeMarketCondition: (symbol) => api.get(`/ai/market-condition?symbol=${symbol}`),
   getAdvancedTechnicalIndicators: (data) => api.post('/ai/technical-indicators', data),
   // Market Analysis endpoints
-  analyzeMarket: async (data) => {
-    const response = await api.post('/market-analysis/analyze', data);
-    return response.data;
+  analyzeMarketAdvanced: async (data) => {
+    try {
+      const response = await api.post('/market-analysis/analyze', data);
+      return response.data;
+    } catch (error) {
+      console.error('Market analysis error:', error);
+      return { error: 'Analysis failed', fallback: true };
+    }
   },
   
   analyzeMarketRealTime: async (symbol, data) => {
-    const response = await api.post(`/market-analysis/real-time/${symbol}`, data);
-    return response.data;
+    try {
+      const response = await api.post(`/market-analysis/real-time/${symbol}`, data);
+      return response.data;
+    } catch (error) {
+      console.error('Real-time analysis error:', error);
+      return { error: 'Real-time analysis failed', fallback: true };
+    }
   },
   
-  getTradingRecommendation: async (data) => {
-    const response = await api.post('/market-analysis/trading-recommendation', data);
-    return response.data;
+  getTradingRecommendationAdvanced: async (data) => {
+    try {
+      const response = await api.post('/market-analysis/trading-recommendation', data);
+      return response.data;
+    } catch (error) {
+      console.error('Trading recommendation error:', error);
+      return { 
+        error: 'Recommendation failed', 
+        fallback: true,
+        recommendation: {
+          contract_type: 'rise_fall',
+          direction: 'call',
+          confidence: 50,
+          risk_level: 'medium',
+          duration: '5 minutes',
+          reasoning: 'Fallback recommendation due to error'
+        }
+      };
+    }
   },
   
   getDigitAnalysis: async () => {
-    const response = await api.get('/market-analysis/digit-analysis');
-    return response.data;
+    try {
+      const response = await api.get('/market-analysis/digit-analysis');
+      return response.data;
+    } catch (error) {
+      console.error('Digit analysis error:', error);
+      return { error: 'Digit analysis failed', fallback: true };
+    }
   },
   
   getChatGPTAnalysis: async () => {
-    const response = await api.get('/market-analysis/chatgpt-analysis');
-    return response.data;
+    try {
+      const response = await api.get('/market-analysis/chatgpt-analysis');
+      return response.data;
+    } catch (error) {
+      console.error('ChatGPT analysis error:', error);
+      return { error: 'ChatGPT analysis failed', fallback: true };
+    }
   },
   
   getPredictions: async () => {
-    const response = await api.get('/market-analysis/predictions');
-    return response.data;
+    try {
+      const response = await api.get('/market-analysis/predictions');
+      return response.data;
+    } catch (error) {
+      console.error('Predictions error:', error);
+      return { error: 'Predictions failed', fallback: true };
+    }
   },
   
   getAnalysisStatus: async () => {
-    const response = await api.get('/market-analysis/status');
-    return response.data;
-  }
+    try {
+      const response = await api.get('/market-analysis/status');
+      return response.data;
+    } catch (error) {
+      console.error('Analysis status error:', error);
+      return { status: 'error', fallback: true };
+    }
+  },
+  
+  // Trading Bot API endpoints with better error handling
+  startTradingBot: async (data) => {
+    try {
+      const response = await api.post('/trading-bot/start', data);
+      return response.data;
+    } catch (error) {
+      console.error('Start trading bot error:', error);
+      throw error;
+    }
+  },
+  
+  stopTradingBot: async () => {
+    try {
+      const response = await api.post('/trading-bot/stop');
+      return response.data;
+    } catch (error) {
+      console.error('Stop trading bot error:', error);
+      throw error;
+    }
+  },
+  getBotStatus: () => api.get('/trading-bot/status'),
+  getBotSettings: () => api.get('/trading-bot/settings'),
+  updateBotSettings: (data) => api.put('/trading-bot/settings', data),
+  getTradingHistory: (params) => api.get('/trading-bot/history', { params }),
+  getTradingSessions: (params) => api.get('/trading-bot/sessions', { params }),
+  getPerformanceAnalytics: () => api.get('/trading-bot/performance'),
+  retrainMlModels: () => api.post('/trading-bot/ml-models/retrain'),
+  getMlModelPerformance: () => api.get('/trading-bot/ml-models/performance'),
+  testTradingSignal: (data) => api.post('/trading-bot/test-signal', data),
+  getBotConfigurations: () => api.get('/trading-bot/bot-configs')
 };
 
 export default api;

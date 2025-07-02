@@ -30,7 +30,7 @@ def save_api_token():
         print(f"Data received: {data}")
         
         if not data.get('api_token'):
-            return jsonify({'error': 'API token is required'}), 400
+            return jsonify({'error': 'API token is required', 'code': 'MISSING_API_TOKEN'}), 400
         
         account_type = data.get('account_type', 'demo')
         if account_type not in ['demo', 'real']:

@@ -14,6 +14,7 @@ from routes.trading import trading_bp
 from routes.deriv_api import deriv_bp
 from routes.ai_analysis import ai_bp
 from routes.market_analysis import market_analysis_bp
+from routes.trading_bot import trading_bot_bp
 
 def create_app():
     """Create and configure the Flask application"""
@@ -42,6 +43,7 @@ def create_app():
     app.register_blueprint(deriv_bp)
     app.register_blueprint(ai_bp)
     app.register_blueprint(market_analysis_bp)  # New market analysis routes
+    app.register_blueprint(trading_bot_bp)  # New trading bot routes
     
     # Create database tables and handle migrations
     with app.app_context():
@@ -67,12 +69,16 @@ def create_app():
     # Error handlers
     @app.errorhandler(404)
     def not_found(error):
-        return jsonify({'error': 'Endpoint not found'}), 404
+        return jsonify({'error': 'Endpoint not found', 'code': 'ENDPOINT_NOT_FOUND'}), 404
     
     @app.errorhandler(500)
     def internal_error(error):
         print(f"Internal server error: {str(error)}")
-        return jsonify({'error': 'Internal server error'}), 500
+        return jsonify({'error': 'Internal server error', 'code': 'INTERNAL_ERROR'}), 500
+    
+    @app.errorhandler(400)
+    def bad_request(error):
+        return jsonify({'error': 'Bad request', 'code': 'BAD_REQUEST'}), 400
     
     @jwt.expired_token_loader
     def expired_token_callback(jwt_header, jwt_payload):

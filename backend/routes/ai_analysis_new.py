@@ -72,35 +72,12 @@ def get_trading_recommendation():
     """Get ML-based trading recommendations"""
     try:
         data = request.get_json()
-        if not data:
-            return jsonify({'error': 'No data provided'}), 400
-            
         symbol = data.get('symbol')
         data_points = data.get('dataPoints', [])
         contract_type = data.get('contractType', 'rise_fall')
         
-        # Better validation for data points
-        if not data_points:
-            return jsonify({'error': 'No data points provided'}), 400
-        
-        # Convert data points to proper format if needed
-        if isinstance(data_points, list) and len(data_points) > 0:
-            # Handle case where data_points are just numbers
-            if isinstance(data_points[0], (int, float)):
-                data_points = [{'price': float(price), 'timestamp': datetime.utcnow().isoformat()} for price in data_points[-200:]]
-        
-        if len(data_points) < 5:  # Further reduced minimum requirement
-            return jsonify({
-                'error': 'Insufficient data points',
-                'required_minimum': 5,
-                'received': len(data_points),
-                'fallback_recommendation': {
-                    'direction': 'call',
-                    'confidence': 0.5,
-                    'duration': 300,
-                    'reasoning': 'Insufficient data - neutral recommendation'
-                }
-            }), 200  # Return 200 with fallback instead of 400
+        if len(data_points) < 100:
+            return jsonify({'error': 'Need at least 100 data points for reliable recommendations'}), 400
         
         # Convert contract type string to enum
         try:
@@ -109,134 +86,38 @@ def get_trading_recommendation():
             contract_enum = ContractType.RISE_FALL
         
         # Prepare market data for ML analysis
-        prices = []
-        for point in data_points:
-            if isinstance(point, dict) and 'price' in point:
-                prices.append(float(point['price']))
-            elif isinstance(point, (int, float)):
-                prices.append(float(point))
-        
-        if not prices:
-            return jsonify({
-                'error': 'No valid price data found',
-                'fallback_recommendation': {
-                    'direction': 'call',
-                    'confidence': 0.5,
-                    'duration': 300,
-                    'reasoning': 'No valid price data - neutral recommendation'
-                }
-            }), 200
-        
-        # Calculate basic technical indicators
-        current_price = prices[-1] if prices else 0
-        price_changes = [prices[i] - prices[i-1] for i in range(1, len(prices))] if len(prices) > 1 else [0]
-        volatility = np.std(price_changes) if price_changes else 0
-        trend = np.mean(price_changes) if price_changes else 0
-        
-        # Calculate RSI (simplified)
-        rsi = 50  # Default neutral RSI
-        if len(price_changes) >= 14:
-            gains = [change for change in price_changes[-14:] if change > 0]
-            losses = [-change for change in price_changes[-14:] if change < 0]
-            avg_gain = np.mean(gains) if gains else 0
-            avg_loss = np.mean(losses) if losses else 0
-            if avg_loss != 0:
-                rs = avg_gain / avg_loss
-                rsi = 100 - (100 / (1 + rs))
-        
         market_data = {
             'price_history': data_points,
             'symbol': symbol,
-            'current_time': datetime.utcnow(),
-            'current_price': current_price,
-            'prices': prices,
-            'volatility': volatility,
-            'trend': trend,
-            'rsi': rsi,
-            'price_changes': price_changes
+            'current_time': datetime.utcnow()
         }
         
-        try:
-            # Get ML recommendation using strategy manager (with default mode)
-            from services.ml_strategies import TradingMode
-            default_mode = TradingMode.MODE_A  # Use default trading mode
-            recommendation = ml_strategy_manager.get_trading_signal(contract_enum, default_mode, market_data)
-            
-            # Handle case where ML strategy returns None
-            if not recommendation:
-                # Return a fallback recommendation
-                return jsonify({
-                    'primary_recommendation': {
-                        'direction': 'call' if trend > 0 else 'put',
-                        'confidence': max(0.5, min(0.8, abs(trend) * 1000 + 0.5)),
-                        'duration': 300,  # 5 minutes
-                        'entry_price': current_price,
-                        'target_price': None,
-                        'stop_loss': None
-                    },
-                    'ensemble_recommendation': get_ensemble_recommendation(market_data, contract_enum),
-                    'technical_analysis': get_technical_analysis_summary(data_points),
-                    'market_regime': detect_market_regime(data_points),
-                    'volatility_forecast': forecast_volatility(data_points),
-                    'timestamp': datetime.utcnow().isoformat(),
-                    'fallback_mode': True,
-                    'message': 'Using fallback recommendation due to ML model unavailability'
-                }), 200
-            
-            # Enhanced recommendation with ensemble voting
-            ensemble_recommendation = get_ensemble_recommendation(market_data, contract_enum)
-            
-            return jsonify({
-                'primary_recommendation': {
-                    'direction': recommendation.direction,
-                    'confidence': recommendation.confidence,
-                    'duration': recommendation.duration,
-                    'entry_price': recommendation.entry_price,
-                    'target_price': recommendation.target_price,
-                    'stop_loss': recommendation.stop_loss
-                },
-                'ensemble_recommendation': ensemble_recommendation,
-                'technical_analysis': get_technical_analysis_summary(data_points),
-                'market_regime': detect_market_regime(data_points),
-                'volatility_forecast': forecast_volatility(data_points),
-                'timestamp': datetime.utcnow().isoformat(),
-                'success': True
-            }), 200
-            
-        except Exception as ml_error:
-            logger.error(f"ML strategy error: {str(ml_error)}")
-            # Return fallback recommendation on ML error
-            return jsonify({
-                'primary_recommendation': {
-                    'direction': 'call' if trend > 0 else 'put',
-                    'confidence': max(0.5, min(0.8, abs(trend) * 1000 + 0.5)),
-                    'duration': 300,
-                    'entry_price': current_price,
-                    'target_price': None,
-                    'stop_loss': None
-                },
-                'ensemble_recommendation': get_ensemble_recommendation(market_data, contract_enum),
-                'technical_analysis': get_technical_analysis_summary(data_points),
-                'market_regime': detect_market_regime(data_points),
-                'volatility_forecast': forecast_volatility(data_points),
-                'timestamp': datetime.utcnow().isoformat(),
-                'fallback_mode': True,
-                'ml_error': str(ml_error),
-                'message': 'Using technical analysis fallback due to ML error'
-            }), 200
+        # Get ML recommendation using strategy manager
+        recommendation = ml_strategy_manager.get_trading_signal(market_data, contract_enum)
+        
+        # Enhanced recommendation with ensemble voting
+        ensemble_recommendation = get_ensemble_recommendation(market_data, contract_enum)
+        
+        return jsonify({
+            'primary_recommendation': {
+                'direction': recommendation.direction,
+                'confidence': recommendation.confidence,
+                'duration': recommendation.duration,
+                'entry_price': recommendation.entry_price,
+                'target_price': recommendation.target_price,
+                'stop_loss': recommendation.stop_loss
+            },
+            'ensemble_recommendation': ensemble_recommendation,
+            'technical_analysis': get_technical_analysis_summary(data_points),
+            'market_regime': detect_market_regime(data_points),
+            'volatility_forecast': forecast_volatility(data_points),
+            'timestamp': datetime.utcnow().isoformat()
+        }), 200
         
     except Exception as e:
         logger.error(f"Trading recommendation error: {str(e)}")
-        return jsonify({
-            'error': 'Internal server error',
-            'details': str(e),
-            'fallback_recommendation': {
-                'direction': 'call',
-                'confidence': 0.5,
-                'duration': 300,
-                'reasoning': 'Error occurred - neutral recommendation'
-            }
-        }), 200  # Return 200 with error details instead of 500
+        return jsonify({'error': 'Failed to generate recommendation', 'details': str(e)}), 500
+
 def prepare_market_data(data_points, indicators, market_condition):
     """Prepare comprehensive market data for ML analysis"""
     prices = [point['price'] for point in data_points[-200:]]  # Last 200 points for better analysis
@@ -621,42 +502,18 @@ def get_ensemble_recommendation(market_data, contract_type):
 
 def get_technical_analysis_summary(data_points):
     """Get technical analysis summary"""
-    # Handle different data point formats
-    prices = []
-    for point in data_points[-50:]:
-        if isinstance(point, dict) and 'price' in point:
-            prices.append(float(point['price']))
-        elif isinstance(point, (int, float)):
-            prices.append(float(point))
-    
-    if len(prices) < 2:
-        return {
-            'trend': 'neutral',
-            'momentum': 'weak',
-            'support_level': 0,
-            'resistance_level': 0
-        }
+    prices = [point['price'] for point in data_points[-50:]]
     
     return {
-        'trend': 'bullish' if prices[-1] > prices[-min(10, len(prices))] else 'bearish',
+        'trend': 'bullish' if prices[-1] > prices[-10] else 'bearish',
         'momentum': 'strong',
-        'support_level': min(prices[-min(20, len(prices)):]),
-        'resistance_level': max(prices[-min(20, len(prices)):])
+        'support_level': min(prices[-20:]),
+        'resistance_level': max(prices[-20:])
     }
 
 def detect_market_regime(data_points):
     """Detect current market regime"""
-    # Handle different data point formats
-    prices = []
-    for point in data_points[-100:]:
-        if isinstance(point, dict) and 'price' in point:
-            prices.append(float(point['price']))
-        elif isinstance(point, (int, float)):
-            prices.append(float(point))
-    
-    if len(prices) < 2:
-        return 'unknown'
-    
+    prices = [point['price'] for point in data_points[-100:]]
     volatility = np.std(np.diff(prices)) if len(prices) > 1 else 0
     
     if volatility > 2.0:
@@ -668,26 +525,12 @@ def detect_market_regime(data_points):
 
 def forecast_volatility(data_points):
     """Forecast future volatility"""
-    # Handle different data point formats
-    prices = []
-    for point in data_points[-50:]:
-        if isinstance(point, dict) and 'price' in point:
-            prices.append(float(point['price']))
-        elif isinstance(point, (int, float)):
-            prices.append(float(point))
-    
-    if len(prices) < 2:
-        return {
-            'current_volatility': 0,
-            'forecasted_volatility': 0,
-            'volatility_trend': 'unknown'
-        }
-    
+    prices = [point['price'] for point in data_points[-50:]]
     returns = np.diff(prices) / prices[:-1] if len(prices) > 1 else [0]
     
     return {
         'current_volatility': np.std(returns) * 100,
-        'forecasted_volatility': np.std(returns[-min(10, len(returns)):]) * 100 if len(returns) >= 2 else 0,
+        'forecasted_volatility': np.std(returns[-10:]) * 100 if len(returns) >= 10 else 0,
         'volatility_trend': 'increasing'  # Placeholder
     }
 
@@ -806,27 +649,10 @@ def get_market_prediction():
 
 def generate_ml_predictions(data_points, horizon):
     """Generate ML-based market predictions"""
-    # Handle different data point formats
-    prices = []
-    for point in data_points[-100:]:
-        if isinstance(point, dict) and 'price' in point:
-            prices.append(float(point['price']))
-        elif isinstance(point, (int, float)):
-            prices.append(float(point))
-    
-    if len(prices) < 2:
-        return {
-            'direction': 'neutral',
-            'confidence': 0.5,
-            'price_targets': {
-                'optimistic': 0,
-                'realistic': 0,
-                'conservative': 0
-            }
-        }
+    prices = [point['price'] for point in data_points[-100:]]
     
     # Simple trend-based prediction (to be enhanced with actual ML models)
-    recent_trend = np.polyfit(range(len(prices[-min(20, len(prices)):])), prices[-min(20, len(prices)):], 1)[0]
+    recent_trend = np.polyfit(range(len(prices[-20:])), prices[-20:], 1)[0]
     
     predictions = {
         'direction': 'up' if recent_trend > 0 else 'down',

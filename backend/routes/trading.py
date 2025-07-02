@@ -22,7 +22,7 @@ def setup_api_token():
         
         if not user:
             print(f"User not found with ID: {user_id}")
-            return jsonify({'error': 'User not found'}), 404
+            return jsonify({'error': 'User not found', 'code': 'USER_NOT_FOUND'}), 404
         
         data = request.get_json()
         print(f"Received data: {data}")
@@ -79,7 +79,7 @@ def get_account_balance():
         user = User.query.get(user_id)
         
         if not user:
-            return jsonify({'error': 'User not found'}), 404
+            return jsonify({'error': 'User not found', 'code': 'USER_NOT_FOUND'}), 404
         
         if not user.deriv_api_token:
             return jsonify({'error': 'API token not configured'}), 400
