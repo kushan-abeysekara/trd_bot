@@ -1,4 +1,7 @@
-from .sms_service import SMSService
-from .validation import ValidationService
+# Utils package initialization
 
-__all__ = ['SMSService', 'ValidationService']
+from .validation import ValidationService
+from .deriv_service import DerivService
+from .sms_service import SMSService
+
+__all__ = ['SMSService', 'ValidationService', 'DerivService']

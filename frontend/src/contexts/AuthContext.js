@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useReducer, useEffect } from 'react';
+import { createContext, useContext, useReducer, useEffect } from 'react';
 import { authAPI } from '../services/api';
 
 // Auth Context
@@ -79,18 +79,57 @@ export const AuthProvider = ({ children }) => {
   const login = async (credentials) => {
     dispatch({ type: 'LOGIN_START' });
     try {
+      console.log('Attempting login with credentials:', { ...credentials, password: '***' });
+      
       const response = await authAPI.login(credentials);
+      console.log('Login response received:', { 
+        message: response.data.message, 
+        hasToken: !!response.data.token,
+        hasUser: !!response.data.user 
+      });
+      
+      // FIXED: Better validation of response data
+      const { token, access_token, user } = response.data;
+      const authToken = token || access_token;
+      
+      if (!authToken || !user) {
+        console.error('Login response validation failed:', {
+          hasToken: !!authToken,
+          hasUser: !!user,
+          tokenType: typeof authToken,
+          userType: typeof user
+        });
+        throw new Error('Invalid login response: missing authentication data');
+      }
+      
+      // Prepare the payload with the correct token
+      const loginPayload = {
+        token: authToken,
+        user: user
+      };
+      
       dispatch({
         type: 'LOGIN_SUCCESS',
-        payload: response.data
+        payload: loginPayload
       });
+      
+      console.log('Login successful, token stored in localStorage');
       return response.data;
     } catch (error) {
-      const errorMessage = error.response?.data?.error || 'Login failed';
+      console.error('Login error:', error);
+      const errorMessage = error.response?.data?.error || error.message || 'Login failed';
       dispatch({
         type: 'LOGIN_FAILURE',
         payload: errorMessage
       });
+      
+      // Enhanced error handling for verification
+      if (error.response?.data?.verification_required && error.response?.data?.user_id) {
+        const enhancedError = new Error(errorMessage);
+        enhancedError.user_id = error.response.data.user_id;
+        throw enhancedError;
+      }
+      
       throw new Error(errorMessage);
     }
   };
@@ -139,13 +178,39 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  // Refresh user data function
+  const refreshUser = async () => {
+    try {
+      const response = await authAPI.profile();
+      const updatedUser = response.data.user;
+      
+      // Update localStorage
+      localStorage.setItem('user', JSON.stringify(updatedUser));
+      
+      // Update state
+      dispatch({
+        type: 'LOAD_USER',
+        payload: {
+          token: state.token,
+          user: updatedUser
+        }
+      });
+      
+      return updatedUser;
+    } catch (error) {
+      console.error('Failed to refresh user data:', error);
+      throw error;
+    }
+  };
+
   const value = {
     ...state,
     login,
     register,
     verify,
     logout,
-    resendVerification
+    resendVerification,
+    refreshUser
   };
 
   return (

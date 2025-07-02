@@ -20,25 +20,35 @@ const LoginPage = () => {
 
   const onSubmit = async (data) => {
     setIsLoading(true);
+    const loginData = {
+      password: data.password
+    };
+
+    if (loginType === 'email') {
+      loginData.email = data.email;
+    } else {
+      loginData.mobile_number = data.mobileNumber;
+    }
+
     try {
-      const loginData = {
-        password: data.password
-      };
-
-      if (loginType === 'email') {
-        loginData.email = data.email;
-      } else {
-        loginData.mobile_number = data.mobileNumber;
-      }
-
       await login(loginData);
-      toast.success('Login successful! Redirecting to dashboard...');
+      toast.success('Login successful!');
       
-      setTimeout(() => {
-        navigate('/dashboard');
-      }, 1000);
+      // Immediate navigation without delay to prevent logout
+      navigate('/dashboard');
     } catch (error) {
-      toast.error(error.message);
+      // Check if this is a verification error
+      if (error.message.includes('not verified') && error.user_id) {
+        toast.error('Please verify your account first');
+        navigate('/verify-otp', {
+          state: {
+            user: { id: error.user_id },
+            verificationType: loginData.email ? 'email' : 'mobile'
+          }
+        });
+      } else {
+        toast.error(error.message);
+      }
     } finally {
       setIsLoading(false);
     }

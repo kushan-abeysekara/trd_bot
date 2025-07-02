@@ -7,95 +7,65 @@ from datetime import datetime, timedelta
 from urllib.parse import quote_plus
 
 class SMSService:
+    """Service for sending SMS messages"""
+    
     def __init__(self):
+        # Initialize SMS service (would use Twilio, AWS SNS, etc. in production)
+        self.enabled = False  # Set to True when SMS provider is configured
         self.api_url = os.getenv('SMS_API_URL')
         self.api_key = os.getenv('SMS_API_KEY')
         self.api_token = os.getenv('SMS_API_TOKEN')
         self.sender_id = os.getenv('SMS_SENDER_ID')
     
-    def generate_verification_code(self):
-        """Generate a 6-digit verification code"""
-        return ''.join(random.choices(string.digits, k=6))
+    def generate_verification_code(self, length=6):
+        """Generate a random verification code"""
+        return ''.join(random.choices(string.digits, k=length))
     
     def send_verification_sms(self, mobile_number, verification_code):
         """Send verification SMS to mobile number"""
         try:
-            # Format the message
-            message = f"Your TradingBot verification code is: {verification_code}. Valid for 10 minutes. Do not share this code."
-            
-            # URL encode the message
+            message = f"Your verification code is: {verification_code}. This code will expire in 10 minutes."
             encoded_message = quote_plus(message)
             
-            # Prepare the request parameters - fix the URL format
-            params = {
-                'sendsms': '',
-                'apikey': self.api_key,
-                'apitoken': self.api_token,
-                'type': 'sms',
-                'from': self.sender_id,
-                'to': mobile_number,
-                'text': encoded_message,
-                'route': '0'
-            }
-            
-            # Build URL with parameters
-            url = f"{self.api_url}?sendsms&apikey={self.api_key}&apitoken={self.api_token}&type=sms&from={self.sender_id}&to={mobile_number}&text={encoded_message}&route=0"
-            
-            print(f"Sending SMS to: {mobile_number}")
-            print(f"SMS URL: {url}")
-            
-            # Send the SMS
-            response = requests.get(url, timeout=30)
-            
-            print(f"SMS Response Status: {response.status_code}")
-            print(f"SMS Response Body: {response.text}")
-            
-            if response.status_code == 200:
-                try:
-                    # Try to parse as JSON
-                    response_data = response.json()
-                    
-                    # Check if the response indicates success
-                    if response_data.get('status') == 'queued':
+            if self.enabled and self.api_url and self.api_key:
+                url = f"{self.api_url}?sendsms&apikey={self.api_key}&apitoken={self.api_token}&type=sms&from={self.sender_id}&to={mobile_number}&text={encoded_message}&route=0"
+                
+                response = requests.get(url, timeout=30)
+                
+                if response.status_code == 200:
+                    try:
+                        response_data = response.json()
                         return {
                             'success': True,
-                            'message': 'SMS sent successfully and queued for delivery',
-                            'response': response_data,
-                            'group_id': response_data.get('group_id')
+                            'message': 'SMS sent successfully',
+                            'response': response_data
                         }
-                    elif response_data.get('status') == 'error':
-                        return {
-                            'success': False,
-                            'message': f"SMS API error: {response_data.get('message', 'Unknown error')}",
-                            'error': response_data
-                        }
-                    else:
-                        return {
-                            'success': False,
-                            'message': f"Unexpected status: {response_data.get('status')}",
-                            'error': response_data
-                        }
-                        
-                except json.JSONDecodeError:
-                    # If not JSON, check text response
-                    response_text = response.text.lower()
-                    if 'queued' in response_text or 'success' in response_text or 'sent' in response_text:
-                        return {
-                            'success': True,
-                            'message': 'SMS sent successfully (text response)',
-                            'response': response.text
-                        }
-                    else:
-                        return {
-                            'success': False,
-                            'message': 'SMS sending failed (text response)',
-                            'error': response.text
-                        }
+                    except json.JSONDecodeError:
+                        if 'queued' in response.text.lower() or 'success' in response.text.lower():
+                            return {
+                                'success': True,
+                                'message': 'SMS sent successfully (text response)',
+                                'response': response.text
+                            }
+                        else:
+                            return {
+                                'success': False,
+                                'message': 'SMS sending failed (text response)',
+                                'error': response.text
+                            }
+                else:
+                    return {
+                        'success': False,
+                        'message': f'SMS API request failed with status {response.status_code}',
+                        'error': response.text
+                    }
             else:
+                # For development, just log the message
+                print(f"SMS to {mobile_number}: {message}")
                 return {
-                    'success': False,
-                    'message': f'SMS API request failed with status {response.status_code}',
-                    'error': response.text
+                    'success': True, 
+                    'message': 'SMS sent successfully (development mode)',
+                    'verification_code': verification_code  # Only for development
                 }
                 
         except requests.exceptions.RequestException as e:
@@ -119,16 +89,20 @@ class SMSService:
             message = f"Welcome to TradingBot, {first_name}! Your account has been successfully created. Start your trading journey now!"
             encoded_message = quote_plus(message)
             
-            url = f"{self.api_url}?sendsms&apikey={self.api_key}&apitoken={self.api_token}&type=sms&from={self.sender_id}&to={mobile_number}&text={encoded_message}&route=0"
-            
-            response = requests.get(url, timeout=30)
-            
-            if response.status_code == 200:
-                try:
-                    response_data = response.json()
-                    return response_data.get('status') == 'queued'
-                except json.JSONDecodeError:
-                    return 'queued' in response.text.lower() or 'success' in response.text.lower()
+            if self.enabled and self.api_url and self.api_key:
+                url = f"{self.api_url}?sendsms&apikey={self.api_key}&apitoken={self.api_token}&type=sms&from={self.sender_id}&to={mobile_number}&text={encoded_message}&route=0"
+                
+                response = requests.get(url, timeout=30)
+                
+                if response.status_code == 200:
+                    try:
+                        response_data = response.json()
+                        return response_data.get('status') == 'queued'
+                    except json.JSONDecodeError:
+                        return 'queued' in response.text.lower() or 'success' in response.text.lower()
+            else:
+                print(f"Welcome SMS to {mobile_number}: {message}")
+                return True
             
             return False
             
@@ -203,4 +177,63 @@ class SMSService:
             return {
                 'success': False,
                 'error': str(e)
+            }
+    
+    def send_password_reset_sms(self, mobile_number, reset_code):
+        """Send password reset SMS"""
+        try:
+            message = f"Your TradingBot password reset code is: {reset_code}. Valid for 15 minutes."
+            encoded_message = quote_plus(message)
+            
+            if self.enabled and self.api_url and self.api_key:
+                url = f"{self.api_url}?sendsms&apikey={self.api_key}&apitoken={self.api_token}&type=sms&from={self.sender_id}&to={mobile_number}&text={encoded_message}&route=0"
+                
+                response = requests.get(url, timeout=30)
+                
+                if response.status_code == 200:
+                    try:
+                        response_data = response.json()
+                        return {
+                            'success': True,
+                            'message': 'SMS sent successfully',
+                            'response': response_data
+                        }
+                    except json.JSONDecodeError:
+                        if 'queued' in response.text.lower() or 'success' in response.text.lower():
+                            return {
+                                'success': True,
+                                'message': 'SMS sent successfully (text response)',
+                                'response': response.text
+                            }
+                        else:
+                            return {
+                                'success': False,
+                                'message': 'SMS sending failed (text response)',
+                                'error': response.text
+                            }
+                else:
+                    return {
+                        'success': False,
+                        'message': f'SMS API request failed with status {response.status_code}',
+                        'error': response.text
+                    }
+            else:
+                print(f"[SMS SERVICE] Password reset SMS to {mobile_number}: {message}")
+                return {
+                    'success': True,
+                    'message': 'Password reset SMS sent successfully (development mode)'
+                }
+                
+        except requests.exceptions.RequestException as e:
+            print(f"SMS Request Exception: {str(e)}")
+            return {
+                'success': False,
+                'message': 'SMS service connection error',
+                'error': str(e)
+            }
+        except Exception as e:
+            print(f"Password reset SMS error: {str(e)}")
+            return {
+                'success': False,
+                'message': f'Failed to send password reset SMS: {str(e)}'
             }

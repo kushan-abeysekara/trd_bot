@@ -91,9 +91,11 @@ const VerifyOTP = () => {
         verificationData.mobile_number = user.mobile_number;
       }
 
-      await verify(verificationData);
+      const result = await verify(verificationData);
       toast.success('Account verified successfully!');
-      navigate('/dashboard');
+      
+      // FIXED: Navigate immediately after successful verification
+      navigate('/dashboard', { replace: true });
     } catch (error) {
       toast.error(error.message || 'Verification failed');
       // Reset code on error
@@ -108,7 +110,7 @@ const VerifyOTP = () => {
   const handleResendCode = async () => {
     setIsResending(true);
     try {
-      const response = await resendVerification({ user_id: user.id });
+      await resendVerification({ user_id: user.id });
       toast.success('Verification code sent successfully!');
       setTimer(600); // Reset to 10 minutes
       setIsTimerActive(true);

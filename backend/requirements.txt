@@ -1,19 +1,20 @@
-Flask==2.3.3
+Flask==3.0.3
 Flask-CORS==4.0.0
-Flask-JWT-Extended==4.5.3
-SQLAlchemy>=2.0.30
-PyMySQL==1.1.0
-bcrypt==4.0.1
+Flask-JWT-Extended==4.6.0
+Flask-SQLAlchemy==3.1.1
+Flask-Login==0.6.3
+SQLAlchemy==2.0.35
+bcrypt==4.1.2
 requests==2.31.0
 python-dotenv==1.0.0
-flask-sqlalchemy>=3.1.1
-marshmallow==3.20.1
+marshmallow==3.20.2
 flask-marshmallow==0.15.0
 marshmallow-sqlalchemy==0.29.0
 email-validator==2.1.0
 phonenumbers==8.13.25
-cryptography==43.0.3
-# Database drivers
-psycopg2-binary==2.9.9
-# Python 3.13 compatibility
-typing-extensions>=4.8.0
+cryptography==42.0.0
+typing-extensions>=4.9.0
+websocket-client>=1.7.0
+Werkzeug==3.0.1
+# Use SQLite instead of PostgreSQL for development
+# psycopg2-binary==2.9.9

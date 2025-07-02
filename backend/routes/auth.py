@@ -5,7 +5,8 @@ import random
 import string
 
 from models import User, UserSession, db
-from utils import SMSService, ValidationService
+from utils.sms_service import SMSService
+from utils.validation import ValidationService
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 sms_service = SMSService()
@@ -169,7 +170,7 @@ def verify_account():
             sms_service.send_welcome_sms(user.mobile_number, user.first_name)
         
         # Create access token
-        access_token = create_access_token(identity=user.id)
+        access_token = create_access_token(identity=str(user.id))  # Convert to string for PyJWT compatibility
         
         return jsonify({
             'message': 'Account verified successfully',
@@ -187,63 +188,185 @@ def login():
     try:
         data = request.get_json()
         
+        # Debug logging
+        print(f"Login attempt - Data received: {data}")
+        
+        # Validate input data
+        if not data:
+            print("Login failed: No data provided")
+            return jsonify({'error': 'No data provided'}), 400
+        
         email = data.get('email')
         mobile_number = data.get('mobile_number')
         password = data.get('password')
         
+        print(f"Login attempt - Email: {email}, Mobile: {mobile_number}, Password: {'*' * len(password) if password else 'None'}")
+        
         if not password:
+            print("Login failed: Password is required")
             return jsonify({'error': 'Password is required'}), 400
         
         if not email and not mobile_number:
+            print("Login failed: Email or mobile number is required")
             return jsonify({'error': 'Email or mobile number is required'}), 400
         
-        # Find user by email or mobile number
-        if email:
-            user = User.query.filter_by(email=email).first()
-        else:
-            user = User.query.filter_by(mobile_number=mobile_number).first()
+        # Ensure database connection is working
+        if not User.ensure_database_connection():
+            print("Login failed: Database connection error")
+            return jsonify({'error': 'Database connection error. Please try again.'}), 503
+        
+        # Find user by email or mobile number with enhanced error handling
+        user = None
+        try:
+            if email:
+                print(f"Searching for user by email: {email}")
+                user = User.query.filter_by(email=email).first()
+            else:
+                print(f"Searching for user by mobile: {mobile_number}")
+                user = User.query.filter_by(mobile_number=mobile_number).first()
+                
+            print(f"User found: {user is not None}")
+            if user:
+                print(f"User details - ID: {user.id}, Email: {user.email}, Mobile: {user.mobile_number}, Verified: {user.is_verified}, Active: {user.is_active}")
+                
+        except Exception as db_error:
+            print(f"Database query error: {str(db_error)}")
+            error_msg = str(db_error).lower()
+            
+            # Handle different types of database errors
+            if any(phrase in error_msg for phrase in ["unknown column", "no such column", "doesn't exist"]):
+                try:
+                    print("Attempting to fix database schema...")
+                    User.migrate_schema()
+                    # Retry the query after migration
+                    if email:
+                        user = User.query.filter_by(email=email).first()
+                    else:
+                        user = User.query.filter_by(mobile_number=mobile_number).first()
+                    print("Database schema fixed and query retried successfully")
+                except Exception as retry_error:
+                    print(f"Retry query error: {str(retry_error)}")
+                    return jsonify({'error': 'Database configuration error. Please contact support.'}), 500
+            elif "connection" in error_msg or "timeout" in error_msg:
+                return jsonify({'error': 'Database connection timeout. Please try again.'}), 503
+            else:
+                return jsonify({'error': 'Database error occurred. Please try again.'}), 500
         
         if not user:
+            print("Login failed: User not found")
             return jsonify({'error': 'Invalid credentials'}), 401
         
         # Check password
-        if not user.check_password(password):
+        password_valid = user.check_password(password)
+        print(f"Password validation result: {password_valid}")
+        if not password_valid:
+            print("Login failed: Invalid password")
             return jsonify({'error': 'Invalid credentials'}), 401
         
         # Check if user is active
         if not user.is_active:
+            print("Login failed: Account is deactivated")
             return jsonify({'error': 'Account is deactivated'}), 401
         
         # Check if user is verified
         if not user.is_verified:
+            print("Login failed: Account not verified")
             return jsonify({
                 'error': 'Account not verified',
                 'user_id': user.id,
                 'verification_required': True
             }), 401
         
-        # Create access token
-        access_token = create_access_token(identity=user.id)
+        print("Login validation passed, creating token...")
         
-        # Create user session
-        session = UserSession(
-            user_id=user.id,
-            token=access_token,
-            ip_address=request.remote_addr,
-            user_agent=request.headers.get('User-Agent'),
-            expires_at=datetime.utcnow() + timedelta(hours=24)
+        # Create access token with longer expiration to prevent logout during API setup
+        access_token = create_access_token(
+            identity=str(user.id),  # Convert to string for PyJWT compatibility
+            expires_delta=timedelta(hours=24)  # 24 hour token to prevent logout
         )
-        db.session.add(session)
-        db.session.commit()
         
-        return jsonify({
+        print(f"Token created successfully: {access_token[:20]}...")
+        
+        # Create user session with better error handling
+        try:
+            session = UserSession(
+                user_id=user.id,
+                token=access_token,
+                ip_address=request.remote_addr,
+                user_agent=request.headers.get('User-Agent'),
+                expires_at=datetime.utcnow() + timedelta(hours=24)
+            )
+            db.session.add(session)
+            db.session.commit()
+            print("User session created successfully")
+        except Exception as session_error:
+            print(f"Session creation error: {str(session_error)}")
+            # Continue even if session creation fails, but log the error
+            try:
+                db.session.rollback()
+            except:
+                pass
+        
+        # Get user data safely including API configuration - FIXED FORMAT
+        try:
+            user_data = user.to_dict()
+            # Add API configuration status with multiple field names for compatibility
+            user_data.update({
+                'has_api_token': bool(user.deriv_api_token),
+                'api_configured': bool(user.deriv_api_token),
+                'deriv_account_type': user.deriv_account_type,
+                'deriv_balance': user.deriv_balance,
+                'deriv_currency': user.deriv_currency,
+                'deriv_account_id': user.deriv_account_id
+            })
+            print(f"User data prepared successfully for user ID: {user.id}")
+        except Exception as user_dict_error:
+            print(f"User dict conversion error: {str(user_dict_error)}")
+            # Fallback to basic user data
+            user_data = {
+                'id': user.id,
+                'email': user.email,
+                'mobile_number': user.mobile_number,
+                'first_name': user.first_name,
+                'last_name': user.last_name,
+                'is_verified': user.is_verified,
+                'has_api_token': bool(getattr(user, 'deriv_api_token', None)),
+                'api_configured': bool(getattr(user, 'deriv_api_token', None)),
+                'deriv_account_type': getattr(user, 'deriv_account_type', 'demo'),
+                'deriv_balance': getattr(user, 'deriv_balance', 0.0),
+                'deriv_currency': getattr(user, 'deriv_currency', 'USD'),
+                'deriv_account_id': getattr(user, 'deriv_account_id', None)
+            }
+        
+        # FIXED: Ensure both token and user are present and valid
+        if not access_token or not user_data:
+            print(f"Login response validation failed - Token: {bool(access_token)}, User: {bool(user_data)}")
+            return jsonify({'error': 'Failed to create login session'}), 500
+        
+        response_data = {
             'message': 'Login successful',
             'token': access_token,
-            'user': user.to_dict()
-        }), 200
+            'access_token': access_token,  # Ensure both fields are present
+            'user': user_data
+        }
+        
+        print(f"Login response prepared successfully for user: {user.first_name} {user.last_name}")
+        print(f"Response contains - Token: {bool(response_data.get('token'))}, User: {bool(response_data.get('user'))}")
+        
+        return jsonify(response_data), 200
         
     except Exception as e:
-        return jsonify({'error': 'Login failed', 'details': str(e)}), 500
+        try:
+            db.session.rollback()
+        except:
+            pass
+        print(f"Login error: {str(e)}")
+        return jsonify({'error': 'Login failed. Please try again.', 'details': str(e)}), 500
+
+@auth_bp.route('/resend-code', methods=['POST'])  # Add this endpoint
+def resend_code():
+    """Alias for resend-verification for frontend compatibility"""
+    return resend_verification()
 
 @auth_bp.route('/resend-verification', methods=['POST'])
 def resend_verification():
@@ -307,17 +430,50 @@ def resend_verification():
 @auth_bp.route('/profile', methods=['GET'])
 @jwt_required()
 def get_profile():
-    """Get user profile"""
+    """Get user profile with enhanced error handling"""
     try:
         user_id = get_jwt_identity()
+        
+        # Ensure database connection
+        if not User.ensure_database_connection():
+            return jsonify({'error': 'Database connection error'}), 503
+        
         user = User.query.get(user_id)
         
         if not user:
             return jsonify({'error': 'User not found'}), 404
         
-        return jsonify({'user': user.to_dict()}), 200
+        # Get user data safely
+        try:
+            user_data = user.to_dict()
+        except Exception as user_dict_error:
+            print(f"Profile dict conversion error: {str(user_dict_error)}")
+            # Try to migrate schema and retry
+            try:
+                User.migrate_schema()
+                user_data = user.to_dict()
+            except Exception as retry_error:
+                print(f"Profile retry error: {str(retry_error)}")
+                # Return basic user data as fallback
+                user_data = {
+                    'id': user.id,
+                    'email': user.email,
+                    'mobile_number': user.mobile_number,
+                    'first_name': user.first_name,
+                    'last_name': user.last_name,
+                    'is_verified': user.is_verified,
+                    'has_api_token': bool(getattr(user, 'deriv_api_token', None)),
+                    'api_configured': bool(getattr(user, 'deriv_api_token', None)),
+                    'deriv_account_type': getattr(user, 'deriv_account_type', 'demo'),
+                    'deriv_balance': getattr(user, 'deriv_balance', 0.0),
+                    'deriv_currency': getattr(user, 'deriv_currency', 'USD'),
+                    'deriv_account_id': getattr(user, 'deriv_account_id', None)
+                }
+        
+        return jsonify({'user': user_data}), 200
         
     except Exception as e:
+        print(f"Profile error: {str(e)}")
         return jsonify({'error': 'Failed to get profile', 'details': str(e)}), 500
 
 @auth_bp.route('/logout', methods=['POST'])
