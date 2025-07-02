@@ -80,10 +80,61 @@ export const tradingAPI = {
   switchAccount: (accountType) => api.post('/deriv/switch-account', { account_type: accountType }),
   getStats: (accountType) => api.get(`/trading/stats${accountType ? `?account_type=${accountType}` : ''}`),
   getRecentActivity: (accountType) => api.get(`/trading/activity${accountType ? `?account_type=${accountType}` : ''}`),
+  // Add new AI analysis endpoints
+  analyzeMarket: (data) => api.post('/ai/analyze-market', data),
+  getTradingRecommendation: (symbol, dataPoints) => api.post('/ai/trading-recommendation', { symbol, dataPoints }),
+  getMarketPrediction: (data) => api.post('/ai/market-prediction', data),
   // Add new volatility charts endpoints
   getVolatilityData: (symbol, timeframe = '1m', limit = 100) => api.get(`/volatility/data?symbol=${symbol}&timeframe=${timeframe}&limit=${limit}`),
   getVolatilityTick: (symbol) => api.get(`/volatility/tick?symbol=${symbol}`),
-  subscribeVolatilityTicks: (symbol) => api.post('/volatility/subscribe', { symbol })
+  subscribeVolatilityTicks: (symbol) => api.post('/volatility/subscribe', { symbol }),
+  // Add new real-time analysis endpoints
+  getRealtimeMarketData: (symbol) => api.get(`/ai/realtime-market?symbol=${symbol}`),
+  predictFutureDigits: (data) => api.post('/ai/predict-digits', data),
+  getMarketSentiment: (symbol) => api.get(`/ai/market-sentiment?symbol=${symbol}`),
+  getLiveAnalytics: (symbol, timeframe = '1m') => api.get(`/ai/live-analytics?symbol=${symbol}&timeframe=${timeframe}`),
+  // Enhanced volatility endpoints
+  getRealtimeTicks: (symbol) => api.get(`/volatility/realtime-ticks?symbol=${symbol}`),
+  subscribeToMarketStream: (symbol) => api.post('/volatility/stream-subscribe', { symbol }),
+  // Advanced AI predictions
+  getFutureDigitPredictions: (data) => api.post('/ai/future-digits-prediction', data),
+  getRealTimeMarketCondition: (symbol) => api.get(`/ai/market-condition?symbol=${symbol}`),
+  getAdvancedTechnicalIndicators: (data) => api.post('/ai/technical-indicators', data),
+  // Market Analysis endpoints
+  analyzeMarket: async (data) => {
+    const response = await api.post('/market-analysis/analyze', data);
+    return response.data;
+  },
+  
+  analyzeMarketRealTime: async (symbol, data) => {
+    const response = await api.post(`/market-analysis/real-time/${symbol}`, data);
+    return response.data;
+  },
+  
+  getTradingRecommendation: async (data) => {
+    const response = await api.post('/market-analysis/trading-recommendation', data);
+    return response.data;
+  },
+  
+  getDigitAnalysis: async () => {
+    const response = await api.get('/market-analysis/digit-analysis');
+    return response.data;
+  },
+  
+  getChatGPTAnalysis: async () => {
+    const response = await api.get('/market-analysis/chatgpt-analysis');
+    return response.data;
+  },
+  
+  getPredictions: async () => {
+    const response = await api.get('/market-analysis/predictions');
+    return response.data;
+  },
+  
+  getAnalysisStatus: async () => {
+    const response = await api.get('/market-analysis/status');
+    return response.data;
+  }
 };
 
 export default api;

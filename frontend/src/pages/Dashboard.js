@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   TrendingUp, 
   User, 
@@ -22,6 +22,7 @@ import { tradingAPI } from '../services/api';
 import ApiTokenSetup from '../components/ApiTokenSetup';
 import VolatilityChart from '../components/VolatilityChart';
 import LastDigitDisplay from '../components/LastDigitDisplay';
+import AIMarketAnalyzer from '../components/AIMarketAnalyzer';
 import toast from 'react-hot-toast';
 
 const Dashboard = () => {
@@ -45,11 +46,59 @@ const Dashboard = () => {
   const [lastDigit, setLastDigit] = useState(null);
   const [currentIndexName, setCurrentIndexName] = useState('');
   const [currentPrice, setCurrentPrice] = useState(null);
+  const [currentChartData, setCurrentChartData] = useState([]);
 
   // Check API token availability for both account types
   const hasDemoToken = user?.has_demo_token || false;
   const hasRealToken = user?.has_real_token || false;
   const hasCurrentAccountToken = currentAccountType === 'demo' ? hasDemoToken : hasRealToken;
+
+  const fetchBalance = useCallback(async () => {
+    if (!hasCurrentAccountToken) return;
+    
+    setIsLoadingBalance(true);
+    setBalanceError(null);
+    
+    try {
+      const response = await tradingAPI.getBalance(currentAccountType);
+      setAccountBalance(response.data);
+    } catch (error) {
+      const errorMessage = error.response?.data?.error || 'Failed to fetch balance';
+      setBalanceError(errorMessage);
+    } finally {
+      setIsLoadingBalance(false);
+    }
+  }, [hasCurrentAccountToken, currentAccountType]);
+
+  const fetchStats = useCallback(async () => {
+    if (!hasCurrentAccountToken) return;
+    
+    setIsLoadingStats(true);
+    try {
+      const response = await tradingAPI.getStats(currentAccountType);
+      setStats(response.data);
+    } catch (error) {
+      console.error('Failed to fetch stats:', error);
+      setStats({ balance: 0, profit: 0, trades: 0, winRate: 0 });
+    } finally {
+      setIsLoadingStats(false);
+    }
+  }, [hasCurrentAccountToken, currentAccountType]);
+
+  const fetchRecentActivity = useCallback(async () => {
+    if (!hasCurrentAccountToken) return;
+    
+    setIsLoadingActivity(true);
+    try {
+      const response = await tradingAPI.getRecentActivity(currentAccountType);
+      setRecentActivity(response.data.activities || []);
+    } catch (error) {
+      console.error('Failed to fetch recent activity:', error);
+      setRecentActivity([]);
+    } finally {
+      setIsLoadingActivity(false);
+    }
+  }, [hasCurrentAccountToken, currentAccountType]);
 
   // Fetch balance, stats, and recent activity on component mount and account type change
   useEffect(() => {
@@ -72,54 +121,7 @@ const Dashboard = () => {
       setStats({ balance: 0, profit: 0, trades: 0, winRate: 0 });
       setRecentActivity([]);
     }
-  }, [hasCurrentAccountToken, currentAccountType]);
-
-  const fetchBalance = async () => {
-    if (!hasCurrentAccountToken) return;
-    
-    setIsLoadingBalance(true);
-    setBalanceError(null);
-    
-    try {
-      const response = await tradingAPI.getBalance(currentAccountType);
-      setAccountBalance(response.data);
-    } catch (error) {
-      const errorMessage = error.response?.data?.error || 'Failed to fetch balance';
-      setBalanceError(errorMessage);
-    } finally {
-      setIsLoadingBalance(false);
-    }
-  };
-
-  const fetchStats = async () => {
-    if (!hasCurrentAccountToken) return;
-    
-    setIsLoadingStats(true);
-    try {
-      const response = await tradingAPI.getStats(currentAccountType);
-      setStats(response.data);
-    } catch (error) {
-      console.error('Failed to fetch stats:', error);
-      setStats({ balance: 0, profit: 0, trades: 0, winRate: 0 });
-    } finally {
-      setIsLoadingStats(false);
-    }
-  };
-
-  const fetchRecentActivity = async () => {
-    if (!hasCurrentAccountToken) return;
-    
-    setIsLoadingActivity(true);
-    try {
-      const response = await tradingAPI.getRecentActivity(currentAccountType);
-      setRecentActivity(response.data.activities || []);
-    } catch (error) {
-      console.error('Failed to fetch recent activity:', error);
-      setRecentActivity([]);
-    } finally {
-      setIsLoadingActivity(false);
-    }
-  };
+  }, [hasCurrentAccountToken, currentAccountType, fetchBalance, fetchStats, fetchRecentActivity]);
 
   const handleAccountSwitch = async (accountType) => {
     const hasToken = accountType === 'demo' ? hasDemoToken : hasRealToken;
@@ -150,7 +152,7 @@ const Dashboard = () => {
       const interval = setInterval(fetchBalance, 30000);
       return () => clearInterval(interval);
     }
-  }, [hasApiToken]);
+  }, [hasApiToken, fetchBalance]);
 
   const handleRemoveApiToken = async () => {
     if (!window.confirm('Are you sure you want to remove your API token? This will disable automated trading.')) {
@@ -198,10 +200,11 @@ const Dashboard = () => {
     }
   };
 
-  const handleLastDigitUpdate = (digit, indexName, price) => {
+  const handleLastDigitUpdate = (digit, indexName, price, chartData) => {
     setLastDigit(digit);
     setCurrentIndexName(indexName);
     setCurrentPrice(price);
+    setCurrentChartData(chartData || []);
   };
 
   return (
@@ -216,18 +219,35 @@ const Dashboard = () => {
               <h1 className="text-xl font-bold text-gray-900">TradingBot</h1>
             </div>
 
-            {/* Last Digit Display - Center */}
+            {/* Current Price and Last Digit Display - Desktop */}
             <div className="hidden md:flex items-center space-x-4">
-              {currentPrice && (
-                <div className="flex items-center space-x-3 px-3 py-1 bg-blue-50 rounded-lg">
-                  <div className="text-right">
-                    <p className="text-xs text-blue-600 font-medium">Current Price</p>
-                    <p className="text-sm font-bold text-blue-900">{currentPrice.toFixed(2)}</p>
+              {/* Fixed width container to prevent layout shift */}
+              {/* Current Price Section - Fixed Height */}
+              <div className="w-48 h-12 flex items-center">
+                {currentPrice ? (
+                  <div className="flex items-center space-x-3 px-3 py-2 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-100 w-full h-full">
+                    <div className="text-right flex-1">
+                      <p className="text-xs text-blue-600 font-medium">Current Price</p>
+                      <p className="text-sm font-bold text-blue-900 transition-all duration-300 font-mono min-w-[60px]">
+                        {currentPrice.toFixed(2)}
+                      </p>
+                    </div>
+                    <div className="h-8 w-px bg-blue-200"></div>
                   </div>
-                  <div className="h-8 w-px bg-blue-200"></div>
-                </div>
-              )}
-              <LastDigitDisplay lastDigit={lastDigit} indexName={currentIndexName} />
+                ) : (
+                  <div className="flex items-center justify-center px-3 py-2 bg-gray-50 rounded-lg border border-gray-100 w-full h-full">
+                    <div className="animate-pulse">
+                      <div className="h-3 bg-gray-300 rounded w-16 mb-1"></div>
+                      <div className="h-4 bg-gray-300 rounded w-12"></div>
+                    </div>
+                  </div>
+                )}
+              </div>
+              
+              {/* Fixed width for LastDigitDisplay */}
+              <div className="w-auto min-w-[200px]">
+                <LastDigitDisplay lastDigit={lastDigit} indexName={currentIndexName} />
+              </div>
             </div>
 
             {/* Account Type Toggle and User Menu */}
@@ -307,24 +327,44 @@ const Dashboard = () => {
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Mobile Last Digit Display */}
-        <div className="md:hidden mb-6 space-y-3">
-          {currentPrice && (
-            <div className="flex justify-center">
-              <div className="flex items-center space-x-4 px-4 py-2 bg-blue-50 border border-blue-200 rounded-lg">
-                <div className="text-center">
-                  <p className="text-xs text-blue-600 font-medium">Current Price</p>
-                  <p className="text-lg font-bold text-blue-900">{currentPrice.toFixed(2)}</p>
-                </div>
-                <div className="h-10 w-px bg-blue-200"></div>
-                <div className="text-center">
-                  <p className="text-xs text-blue-600 font-medium">2nd Decimal</p>
-                  <p className="text-lg font-bold text-blue-900">{lastDigit ?? '-'}</p>
-                </div>
+        <div className="md:hidden mb-6">
+          <div className="flex justify-center">
+            <div className="w-full max-w-md">
+              {/* Fixed height container to prevent layout shift */}
+              <div className="h-20 flex items-center justify-center mb-3">
+                {currentPrice ? (
+                  <div className="flex items-center space-x-4 px-4 py-3 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl shadow-sm w-full">
+                    <div className="text-center flex-1">
+                      <p className="text-xs text-blue-600 font-medium mb-1">Current Price</p>
+                      <p className="text-lg font-bold text-blue-900 transition-all duration-300 font-mono min-w-[80px]">
+                        {currentPrice.toFixed(2)}
+                      </p>
+                    </div>
+                    <div className="h-12 w-px bg-blue-200"></div>
+                    <div className="text-center flex-1">
+                      <p className="text-xs text-blue-600 font-medium mb-1">Last Digit</p>
+                      <p className="text-lg font-bold text-blue-900 transition-all duration-300 font-mono min-w-[20px]">
+                        {lastDigit ?? '-'}
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-center px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl w-full">
+                    <div className="text-center">
+                      <div className="animate-pulse">
+                        <div className="h-4 bg-gray-300 rounded w-20 mb-2 mx-auto"></div>
+                        <div className="h-6 bg-gray-300 rounded w-16 mx-auto"></div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+              
+              {/* Fixed height for LastDigitDisplay */}
+              <div className="h-12 flex justify-center items-center">
+                <LastDigitDisplay lastDigit={lastDigit} indexName={currentIndexName} />
               </div>
             </div>
-          )}
-          <div className="flex justify-center">
-            <LastDigitDisplay lastDigit={lastDigit} indexName={currentIndexName} />
           </div>
         </div>
 
@@ -354,132 +394,199 @@ const Dashboard = () => {
         )}
 
         {/* Stats Cards */}
+        {/* Stats Cards Grid - Fixed Heights */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          {/* Balance Card */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <div className="flex items-center justify-between mb-2">
-              <div>
-                <p className="text-sm font-medium text-gray-600">
-                  {accountBalance ? 
-                    `${accountBalance.account_type.charAt(0).toUpperCase() + accountBalance.account_type.slice(1)} Balance` : 
-                    `${currentAccountType.charAt(0).toUpperCase() + currentAccountType.slice(1)} Balance`
-                  }
-                </p>
-                {accountBalance ? (
-                  <div>
-                    <p className="text-2xl font-bold text-blue-600">
-                      {accountBalance.currency} {accountBalance.balance.toFixed(2)}
-                    </p>
-                    <p className="text-xs text-gray-500 mt-1">
+          {/* Balance Card - Fixed Height */}
+          <div className="bg-white rounded-lg shadow-md border border-gray-100 h-44">
+            <div className="p-6 h-full flex flex-col">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-gray-600 truncate">
+                    {currentAccountType.charAt(0).toUpperCase() + currentAccountType.slice(1)} Balance
+                  </p>
+                  <div className="h-12 flex items-center">
+                    {isLoadingBalance ? (
+                      <div className="flex items-center space-x-2">
+                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
+                        <span className="text-lg font-bold text-gray-400 font-mono min-w-[100px]">Loading...</span>
+                      </div>
+                    ) : accountBalance ? (
+                      <p className="text-2xl font-bold text-blue-600 truncate font-mono min-w-[120px]">
+                        {accountBalance.currency} {accountBalance.balance?.toFixed(2) || '0.00'}
+                      </p>
+                    ) : hasCurrentAccountToken ? (
+                      <p className="text-2xl font-bold text-gray-400 font-mono min-w-[60px]">N/A</p>
+                    ) : (
+                      <p className="text-xl font-bold text-gray-400 font-mono min-w-[80px]">No Token</p>
+                    )}
+                  </div>
+                </div>
+                <div className="flex flex-col items-center space-y-2 ml-4">
+                  <div className={`w-12 h-12 rounded-lg flex items-center justify-center transition-colors ${
+                    accountBalance ? 'bg-green-100' : 'bg-gray-100'
+                  }`}>
+                    <DollarSign className={`w-6 h-6 transition-colors ${
+                      accountBalance ? 'text-green-600' : 'text-gray-400'
+                    }`} />
+                  </div>
+                  {hasCurrentAccountToken && (
+                    <button
+                      onClick={fetchBalance}
+                      disabled={isLoadingBalance}
+                      className="p-1 text-blue-600 hover:text-blue-700 disabled:opacity-50 transition-opacity"
+                      title="Refresh balance"
+                    >
+                      <RefreshCw className={`w-3 h-3 ${isLoadingBalance ? 'animate-spin' : ''}`} />
+                    </button>
+                  )}
+                </div>
+              </div>
+              
+              <div className="mt-auto space-y-2">
+                {/* Fixed height for account info */}
+                <div className="h-4">
+                  {accountBalance?.account_id && (
+                    <p className="text-xs text-gray-500 truncate">
                       Account: {accountBalance.account_id}
                     </p>
-                  </div>
-                ) : hasCurrentAccountToken ? (
-                  <p className="text-2xl font-bold text-gray-400">
-                    {isLoadingBalance ? 'Loading...' : 'N/A'}
-                  </p>
-                ) : (
-                  <p className="text-2xl font-bold text-gray-400">
-                    No API Token
-                  </p>
-                )}
-              </div>
-              <div className="flex flex-col items-end space-y-1">
-                <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${
-                  accountBalance ? 'bg-green-100' : 'bg-gray-100'
-                }`}>
-                  <DollarSign className={`w-6 h-6 ${
-                    accountBalance ? 'text-green-600' : 'text-gray-400'
-                  }`} />
+                  )}
                 </div>
-                {hasCurrentAccountToken && (
-                  <button
-                    onClick={fetchBalance}
-                    disabled={isLoadingBalance}
-                    className="text-xs text-blue-600 hover:text-blue-700 disabled:opacity-50 flex items-center"
-                    title="Refresh balance"
-                  >
-                    <RefreshCw className={`w-3 h-3 ${isLoadingBalance ? 'animate-spin' : ''}`} />
-                  </button>
-                )}
-              </div>
-            </div>
-            {balanceError && (
-              <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-600">
-                {balanceError}
-              </div>
-            )}
-            {accountBalance && (
-              <div className="mt-2 flex items-center justify-between text-xs text-gray-500">
-                <span>Last updated: {new Date(accountBalance.last_updated).toLocaleTimeString()}</span>
-                {accountBalance.account_type === 'demo' && (
-                  <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded">Demo</span>
-                )}
-                {accountBalance.account_type === 'real' && (
-                  <span className="bg-green-100 text-green-800 px-2 py-1 rounded">Real</span>
-                )}
-              </div>
-            )}
-            {isLoadingBalance && (
-              <div className="mt-2 flex items-center text-xs text-blue-600">
-                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600 mr-2"></div>
-                Updating balance...
-              </div>
-            )}
-          </div>
-
-          {/* Total Profit Card */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Total Profit</p>
-                <p className={`text-2xl font-bold ${
-                  stats.profit > 0 ? 'text-green-600' : stats.profit < 0 ? 'text-red-600' : 'text-gray-600'
-                }`}>
-                  {hasCurrentAccountToken ? 
-                    (isLoadingStats ? 'Loading...' : `$${stats.profit.toFixed(2)}`) : 
-                    'No Data'
-                  }
-                </p>
-              </div>
-              <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-                <TrendingUp className="w-6 h-6 text-green-600" />
+                
+                {/* Fixed height for status/error */}
+                <div className="h-6 flex items-center justify-between">
+                  {balanceError ? (
+                    <span className="text-xs text-red-600 truncate flex-1">{balanceError}</span>
+                  ) : accountBalance ? (
+                    <>
+                      <span className="text-xs text-gray-500 truncate flex-1">
+                        {new Date(accountBalance.last_updated).toLocaleTimeString()}
+                      </span>
+                      <span className={`text-xs px-2 py-1 rounded ml-2 ${
+                        accountBalance.account_type === 'demo' 
+                          ? 'bg-blue-100 text-blue-800' 
+                          : 'bg-green-100 text-green-800'
+                      }`}>
+                        {accountBalance.account_type === 'demo' ? 'Demo' : 'Real'}
+                      </span>
+                    </>
+                  ) : null}
+                </div>
               </div>
             </div>
           </div>
 
-          {/* Total Trades Card */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Total Trades</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {hasCurrentAccountToken ? 
-                    (isLoadingStats ? 'Loading...' : stats.trades) : 
-                    'No Data'
-                  }
-                </p>
+          {/* Total Profit Card - Fixed Height */}
+          <div className="bg-white rounded-lg shadow-md border border-gray-100 h-44">
+            <div className="p-6 h-full flex flex-col">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-gray-600">Total Profit</p>
+                  <div className="h-12 flex items-center">
+                    {isLoadingStats ? (
+                      <div className="flex items-center space-x-2">
+                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-green-600"></div>
+                        <span className="text-lg font-bold text-gray-400 font-mono min-w-[80px]">Loading...</span>
+                      </div>
+                    ) : hasCurrentAccountToken ? (
+                      <p className={`text-2xl font-bold transition-colors font-mono min-w-[100px] ${
+                        stats.profit > 0 ? 'text-green-600' : stats.profit < 0 ? 'text-red-600' : 'text-gray-600'
+                      }`}>
+                        ${stats.profit?.toFixed(2) || '0.00'}
+                      </p>
+                    ) : (
+                      <p className="text-xl font-bold text-gray-400 font-mono min-w-[80px]">No Data</p>
+                    )}
+                  </div>
+                </div>
+                <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center ml-4">
+                  <TrendingUp className="w-6 h-6 text-green-600" />
+                </div>
               </div>
-              <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
-                <BarChart3 className="w-6 h-6 text-purple-600" />
+              
+              <div className="mt-auto">
+                <div className="h-6 flex items-center">
+                  {hasCurrentAccountToken && stats.profit !== 0 && (
+                    <span className="text-xs text-gray-500">
+                      {stats.profit > 0 ? '↗️ Profitable' : '↘️ In Loss'}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
           </div>
 
-          {/* Win Rate Card */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Win Rate</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {hasCurrentAccountToken ? 
-                    (isLoadingStats ? 'Loading...' : `${stats.winRate.toFixed(1)}%`) : 
-                    'No Data'
-                  }
-                </p>
+          {/* Total Trades Card - Fixed Height */}
+          <div className="bg-white rounded-lg shadow-md border border-gray-100 h-44">
+            <div className="p-6 h-full flex flex-col">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-gray-600">Total Trades</p>
+                  <div className="h-12 flex items-center">
+                    {isLoadingStats ? (
+                      <div className="flex items-center space-x-2">
+                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-purple-600"></div>
+                        <span className="text-lg font-bold text-gray-400 font-mono min-w-[60px]">Loading...</span>
+                      </div>
+                    ) : hasCurrentAccountToken ? (
+                      <p className="text-2xl font-bold text-gray-900 font-mono min-w-[40px]">
+                        {stats.trades || 0}
+                      </p>
+                    ) : (
+                      <p className="text-xl font-bold text-gray-400 font-mono min-w-[60px]">No Data</p>
+                    )}
+                  </div>
+                </div>
+                <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center ml-4">
+                  <BarChart3 className="w-6 h-6 text-purple-600" />
+                </div>
               </div>
-              <div className="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center">
-                <Activity className="w-6 h-6 text-yellow-600" />
+              
+              <div className="mt-auto">
+                <div className="h-6 flex items-center">
+                  {hasCurrentAccountToken && stats.trades > 0 && (
+                    <span className="text-xs text-gray-500">
+                      📊 Total executed
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Win Rate Card - Fixed Height */}
+          <div className="bg-white rounded-lg shadow-md border border-gray-100 h-44">
+            <div className="p-6 h-full flex flex-col">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-gray-600">Win Rate</p>
+                  <div className="h-12 flex items-center">
+                    {isLoadingStats ? (
+                      <div className="flex items-center space-x-2">
+                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-yellow-600"></div>
+                        <span className="text-lg font-bold text-gray-400 font-mono min-w-[60px]">Loading...</span>
+                      </div>
+                    ) : hasCurrentAccountToken ? (
+                      <p className="text-2xl font-bold text-gray-900 font-mono min-w-[50px]">
+                        {stats.winRate?.toFixed(1) || '0.0'}%
+                      </p>
+                    ) : (
+                      <p className="text-xl font-bold text-gray-400 font-mono min-w-[60px]">No Data</p>
+                    )}
+                  </div>
+                </div>
+                <div className="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center ml-4">
+                  <Activity className="w-6 h-6 text-yellow-600" />
+                </div>
+              </div>
+              
+              <div className="mt-auto">
+                <div className="h-6 flex items-center">
+                  {hasCurrentAccountToken && stats.winRate > 0 && (
+                    <span className="text-xs text-gray-500">
+                      {stats.winRate >= 50 ? '🎯 Good performance' : '⚠️ Needs improvement'}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -492,299 +599,365 @@ const Dashboard = () => {
             {/* Volatility Chart */}
             <VolatilityChart onLastDigitUpdate={handleLastDigitUpdate} />
             
+            {/* AI Market Analyzer */}
+            <AIMarketAnalyzer 
+              chartData={currentChartData}
+              currentPrice={currentPrice}
+              selectedIndex={currentIndexName}
+            />
+            
             {/* Auto Trading Control */}
-            <div className="bg-white rounded-lg shadow p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-lg font-semibold text-gray-900">Auto Trading</h3>
-                <div className="flex items-center space-x-2">
-                  <span className={`text-sm font-medium ${autoTradeEnabled ? 'text-green-600' : 'text-gray-500'}`}>
-                    {autoTradeEnabled ? 'Active' : 'Inactive'}
-                  </span>
-                  <button
-                    onClick={toggleAutoTrade}
-                    className={`p-2 rounded-lg transition-colors ${
-                      autoTradeEnabled 
-                        ? 'bg-green-100 text-green-600 hover:bg-green-200' 
-                        : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                    }`}
-                  >
-                    {autoTradeEnabled ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
-                  </button>
-                </div>
-              </div>
-
-              {/* Trading Status */}
-              <div className="space-y-4">
-                <div className="p-4 bg-gray-50 rounded-lg">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-3">
-                      <Bot className="w-8 h-8 text-blue-600" />
-                      <div>
-                        <p className="font-medium text-gray-900">AI Trading Bot</p>
-                        <p className="text-sm text-gray-600">
-                          {autoTradeEnabled ? 'Monitoring markets and executing trades' : 'Waiting for activation'}
-                        </p>
-                      </div>
+            <div className="bg-white rounded-lg shadow-md border border-gray-100">
+              <div className="p-6">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-lg font-semibold text-gray-900">Auto Trading</h3>
+                  <div className="flex items-center space-x-3">
+                    <div className="flex items-center space-x-2">
+                      <span className={`text-sm font-medium transition-colors ${
+                        autoTradeEnabled ? 'text-green-600' : 'text-gray-500'
+                      }`}>
+                        {autoTradeEnabled ? 'Active' : 'Inactive'}
+                      </span>
+                      <div className={`w-2 h-2 rounded-full transition-colors ${
+                        autoTradeEnabled ? 'bg-green-400 animate-pulse' : 'bg-gray-300'
+                      }`}></div>
                     </div>
-                    <div className={`w-3 h-3 rounded-full ${autoTradeEnabled ? 'bg-green-400 animate-pulse' : 'bg-gray-300'}`}></div>
+                    <button
+                      onClick={toggleAutoTrade}
+                      className={`p-2 rounded-lg transition-all duration-200 ${
+                        autoTradeEnabled 
+                          ? 'bg-green-100 text-green-600 hover:bg-green-200 shadow-sm' 
+                          : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                      }`}
+                    >
+                      {autoTradeEnabled ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
+                    </button>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="p-3 border border-gray-200 rounded-lg">
-                    <p className="text-sm text-gray-600">Risk Level</p>
-                    <p className="font-semibold text-yellow-600">Medium</p>
+                {/* Trading Bot Status - Fixed Height */}
+                <div className="space-y-4">
+                  <div className="h-20 p-4 bg-gradient-to-r from-gray-50 to-blue-50 rounded-lg border border-gray-200">
+                    <div className="flex items-center justify-between h-full">
+                      <div className="flex items-center space-x-4">
+                        <div className={`w-12 h-12 rounded-lg flex items-center justify-center transition-colors ${
+                          autoTradeEnabled ? 'bg-blue-100' : 'bg-gray-100'
+                        }`}>
+                          <Bot className={`w-6 h-6 transition-colors ${
+                            autoTradeEnabled ? 'text-blue-600' : 'text-gray-400'
+                          }`} />
+                        </div>
+                        <div>
+                          <p className="font-medium text-gray-900">AI Trading Bot</p>
+                          <p className="text-sm text-gray-600">
+                            {autoTradeEnabled ? 'Monitoring markets and executing trades' : 'Waiting for activation'}
+                          </p>
+                        </div>
+                      </div>
+                      <div className={`w-4 h-4 rounded-full transition-all duration-300 ${
+                        autoTradeEnabled ? 'bg-green-400 animate-pulse shadow-lg' : 'bg-gray-300'
+                      }`}></div>
+                    </div>
                   </div>
-                  <div className="p-3 border border-gray-200 rounded-lg">
-                    <p className="text-sm text-gray-600">Strategy</p>
-                    <p className="font-semibold text-blue-600">AI Adaptive</p>
+
+                  {/* Strategy Info - Fixed Grid */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="h-16 p-3 border border-gray-200 rounded-lg bg-gradient-to-br from-yellow-50 to-orange-50 flex flex-col justify-center">
+                      <p className="text-sm text-gray-600 mb-1">Risk Level</p>
+                      <p className="font-semibold text-yellow-600">Medium</p>
+                    </div>
+                    <div className="h-16 p-3 border border-gray-200 rounded-lg bg-gradient-to-br from-blue-50 to-indigo-50 flex flex-col justify-center">
+                      <p className="text-sm text-gray-600 mb-1">Strategy</p>
+                      <p className="font-semibold text-blue-600">AI Adaptive</p>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
 
             {/* Recent Activity */}
-            <div className="bg-white rounded-lg shadow p-6 mt-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-gray-900">Recent Activity</h3>
-                <button
-                  onClick={fetchRecentActivity}
-                  disabled={isLoadingActivity || !hasCurrentAccountToken}
-                  className="text-sm text-blue-600 hover:text-blue-700 disabled:opacity-50"
-                >
-                  <RefreshCw className={`w-4 h-4 ${isLoadingActivity ? 'animate-spin' : ''}`} />
-                </button>
-              </div>
-              
-              {!hasCurrentAccountToken ? (
-                <div className="text-center py-8 text-gray-500">
-                  <Activity className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-                  <p>Configure API token to view recent activity</p>
+            <div className="bg-white rounded-lg shadow-md border border-gray-100">
+              <div className="p-6">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-lg font-semibold text-gray-900">Recent Activity</h3>
+                  <button
+                    onClick={fetchRecentActivity}
+                    disabled={isLoadingActivity || !hasCurrentAccountToken}
+                    className="p-2 text-blue-600 hover:text-blue-700 disabled:opacity-50 hover:bg-blue-50 rounded-lg transition-colors"
+                    title="Refresh activity"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${isLoadingActivity ? 'animate-spin' : ''}`} />
+                  </button>
                 </div>
-              ) : isLoadingActivity ? (
-                <div className="text-center py-8">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-                  <p className="text-gray-500 mt-2">Loading activities...</p>
-                </div>
-              ) : recentActivity.length === 0 ? (
-                <div className="text-center py-8 text-gray-500">
-                  <Activity className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-                  <p>No recent activities</p>
-                  <p className="text-sm">Your trading activities will appear here</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {recentActivity.map((activity) => (
-                    <div key={activity.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                      <div className="flex items-center space-x-3">
-                        <div className={`w-2 h-2 rounded-full ${
-                          activity.type === 'profit' ? 'bg-green-400' : 
-                          activity.type === 'loss' ? 'bg-red-400' : 'bg-blue-400'
-                        }`}></div>
-                        <div>
-                          <p className="font-medium text-gray-900">{activity.title}</p>
-                          <p className="text-sm text-gray-600">{activity.description}</p>
-                        </div>
+                
+                {/* Fixed height container to prevent layout shifts */}
+                <div className="min-h-[300px]">
+                  {!hasCurrentAccountToken ? (
+                    <div className="flex flex-col items-center justify-center h-[300px] text-gray-500">
+                      <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
+                        <Activity className="w-8 h-8 text-gray-300" />
                       </div>
-                      <div className="text-right">
-                        <p className={`font-medium ${
-                          activity.amount > 0 ? 'text-green-600' : 
-                          activity.amount < 0 ? 'text-red-600' : 'text-gray-600'
-                        }`}>
-                          {activity.amount > 0 ? '+' : ''}${activity.amount.toFixed(2)}
-                        </p>
-                        <p className="text-sm text-gray-500">{activity.time}</p>
-                      </div>
+                      <p className="text-lg font-medium mb-2">No API Token</p>
+                      <p className="text-sm text-center">Configure API token to view recent activity</p>
                     </div>
-                  ))}
+                  ) : isLoadingActivity ? (
+                    <div className="flex flex-col items-center justify-center h-[300px]">
+                      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
+                      <p className="text-gray-500">Loading activities...</p>
+                    </div>
+                  ) : recentActivity.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-[300px] text-gray-500">
+                      <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
+                        <Activity className="w-8 h-8 text-gray-300" />
+                      </div>
+                      <p className="text-lg font-medium mb-2">No Recent Activities</p>
+                      <p className="text-sm text-center">Your trading activities will appear here</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {recentActivity.map((activity, index) => (
+                        <div 
+                          key={activity.id || index} 
+                          className="flex items-center justify-between p-4 bg-gradient-to-r from-gray-50 to-gray-100 rounded-lg border border-gray-200 hover:shadow-sm transition-all duration-200"
+                        >
+                          <div className="flex items-center space-x-3 flex-1 min-w-0">
+                            <div className={`w-3 h-3 rounded-full flex-shrink-0 ${
+                              activity.type === 'profit' ? 'bg-green-400' : 
+                              activity.type === 'loss' ? 'bg-red-400' : 'bg-blue-400'
+                            }`}></div>
+                            <div className="min-w-0 flex-1">
+                              <p className="font-medium text-gray-900 truncate">{activity.title}</p>
+                              <p className="text-sm text-gray-600 truncate">{activity.description}</p>
+                            </div>
+                          </div>
+                          <div className="text-right flex-shrink-0 ml-4">
+                            <p className={`font-bold ${
+                              activity.amount > 0 ? 'text-green-600' : 
+                              activity.amount < 0 ? 'text-red-600' : 'text-gray-600'
+                            }`}>
+                              {activity.amount > 0 ? '+' : ''}${Math.abs(activity.amount).toFixed(2)}
+                            </p>
+                            <p className="text-xs text-gray-500 whitespace-nowrap">{activity.time}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              )}
+              </div>
             </div>
           </div>
 
           {/* Sidebar */}
           <div className="space-y-6">
             {/* API Configuration */}
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">API Configuration</h3>
-              {hasApiToken ? (
-                <div className="space-y-4">
-                  {/* Overall Status */}
-                  <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-2">
-                        <Shield className="w-5 h-5 text-green-600" />
-                        <span className="font-medium text-green-800">API Configured</span>
-                      </div>
-                      <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                    </div>
-                    <p className="text-sm text-green-700 mt-1">
-                      Your Deriv API token is active and ready for trading
-                    </p>
-                  </div>
-
-                  {/* API Status Details */}
-                  <div className="space-y-3">
-                    {/* Demo Account Status */}
-                    <div className="flex items-center justify-between p-2 border border-gray-200 rounded">
-                      <div className="flex items-center space-x-2">
-                        <span className="text-gray-600">Demo API</span>
-                        {user?.deriv_account_type === 'demo' || accountBalance?.account_type === 'demo' ? (
-                          <div className="flex items-center space-x-1">
-                            <Shield className="w-4 h-4 text-green-600" />
-                            <span className="text-xs text-green-600 font-medium">Active</span>
+            <div className="bg-white rounded-lg shadow-md border border-gray-100">
+              <div className="p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">API Configuration</h3>
+                {hasApiToken ? (
+                  <div className="space-y-4">
+                    {/* Overall Status - Fixed Height */}
+                    <div className="h-20 p-4 bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-lg">
+                      <div className="flex items-center justify-between h-full">
+                        <div className="flex items-center space-x-3">
+                          <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
+                            <Shield className="w-5 h-5 text-green-600" />
                           </div>
-                        ) : (
-                          <span className="text-xs text-gray-400">Not Set</span>
+                          <div>
+                            <span className="font-medium text-green-800">API Configured</span>
+                            <p className="text-sm text-green-700">
+                              Ready for trading
+                            </p>
+                          </div>
+                        </div>
+                        <div className="w-3 h-3 bg-green-400 rounded-full animate-pulse"></div>
+                      </div>
+                    </div>
+
+                    {/* API Status Details - Fixed Heights */}
+                    <div className="space-y-3">
+                      {/* Demo Account Status */}
+                      <div className="h-12 flex items-center justify-between p-3 border border-gray-200 rounded-lg bg-gray-50">
+                        <div className="flex items-center space-x-3">
+                          <span className="text-gray-700 font-medium">Demo API</span>
+                          {hasDemoToken ? (
+                            <div className="flex items-center space-x-1">
+                              <Shield className="w-4 h-4 text-green-600" />
+                              <span className="text-xs text-green-600 font-medium">Active</span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-gray-400">Not Set</span>
+                          )}
+                        </div>
+                        {currentAccountType === 'demo' && (
+                          <span className="text-xs text-blue-600 bg-blue-100 px-2 py-1 rounded-full">Current</span>
                         )}
                       </div>
-                      {user?.deriv_account_type === 'demo' && (
-                        <span className="text-xs text-blue-600 bg-blue-100 px-2 py-1 rounded">Current</span>
+
+                      {/* Real Account Status */}
+                      <div className="h-12 flex items-center justify-between p-3 border border-gray-200 rounded-lg bg-gray-50">
+                        <div className="flex items-center space-x-3">
+                          <span className="text-gray-700 font-medium">Real API</span>
+                          {hasRealToken ? (
+                            <div className="flex items-center space-x-1">
+                              <Shield className="w-4 h-4 text-green-600" />
+                              <span className="text-xs text-green-600 font-medium">Active</span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-gray-400">Not Set</span>
+                          )}
+                        </div>
+                        {currentAccountType === 'real' && (
+                          <span className="text-xs text-red-600 bg-red-100 px-2 py-1 rounded-full">Current</span>
+                        )}
+                      </div>
+
+                      {/* Account ID - Fixed Height */}
+                      {accountBalance?.account_id && (
+                        <div className="h-12 flex items-center justify-between p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                          <span className="text-gray-700 font-medium">Account ID</span>
+                          <span className="text-sm text-gray-900 font-mono bg-white px-2 py-1 rounded border">
+                            {accountBalance.account_id}
+                          </span>
+                        </div>
                       )}
                     </div>
 
-                    {/* Real Account Status */}
-                    <div className="flex items-center justify-between p-2 border border-gray-200 rounded">
-                      <div className="flex items-center space-x-2">
-                        <span className="text-gray-600">Real API</span>
-                        {user?.deriv_account_type === 'real' || accountBalance?.account_type === 'real' ? (
-                          <div className="flex items-center space-x-1">
-                            <Shield className="w-4 h-4 text-green-600" />
-                            <span className="text-xs text-green-600 font-medium">Active</span>
-                          </div>
-                        ) : (
-                          <span className="text-xs text-gray-400">Not Set</span>
-                        )}
-                      </div>
-                      {user?.deriv_account_type === 'real' && (
-                        <span className="text-xs text-red-600 bg-red-100 px-2 py-1 rounded">Current</span>
-                      )}
+                    {/* Action Buttons - Fixed Height */}
+                    <div className="flex space-x-2 pt-2">
+                      <button
+                        onClick={() => setShowApiSetup(true)}
+                        className="flex-1 h-10 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg px-3 transition-colors flex items-center justify-center"
+                      >
+                        Manage APIs
+                      </button>
+                      <button
+                        onClick={handleRemoveApiToken}
+                        className="flex-1 h-10 text-red-600 hover:text-red-700 text-sm font-medium border border-red-200 hover:border-red-300 rounded-lg px-3 transition-colors flex items-center justify-center"
+                      >
+                        Remove API
+                      </button>
                     </div>
-
-                    {accountBalance?.account_id && (
-                      <div className="flex items-center justify-between p-2 bg-gray-50 rounded">
-                        <span className="text-gray-600">Account ID</span>
-                        <span className="text-sm text-gray-900 font-mono">{accountBalance.account_id}</span>
-                      </div>
-                    )}
                   </div>
-
-                  {/* Action Buttons */}
-                  <div className="flex space-x-2">
+                ) : (
+                  <div className="text-center">
+                    <div className="h-20 flex flex-col items-center justify-center mb-4">
+                      <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mb-2">
+                        <Key className="w-6 h-6 text-green-600" />
+                      </div>
+                    </div>
+                    <div className="h-16 p-3 bg-green-50 border border-green-200 rounded-lg mb-4">
+                      <p className="text-green-700 font-medium mb-2">Ready to Configure</p>
+                      <p className="text-sm text-green-600">
+                        Setup your Deriv API tokens to enable automated trading
+                      </p>
+                    </div>
                     <button
                       onClick={() => setShowApiSetup(true)}
-                      className="flex-1 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded px-3 py-2 transition-colors"
+                      className="w-full h-10 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors font-medium"
                     >
-                      Manage APIs
+                      Setup API Tokens
                     </button>
-                    <button
-                      onClick={handleRemoveApiToken}
-                      className="flex-1 text-red-600 hover:text-red-700 text-sm font-medium border border-red-200 hover:border-red-300 rounded px-3 py-2 transition-colors"
-                    >
-                      Remove API
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="text-center">
-                  <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                    <Key className="w-6 h-6 text-green-600" />
-                  </div>
-                  <div className="p-3 bg-green-50 border border-green-200 rounded-lg mb-3">
-                    <p className="text-green-700 font-medium mb-2">Ready to Configure</p>
-                    <p className="text-sm text-green-600">
-                      Setup your Deriv API tokens to enable automated trading
+                    <p className="text-xs text-gray-500 mt-2 h-4">
+                      You can configure both Demo and Real API tokens
                     </p>
                   </div>
-                  <button
-                    onClick={() => setShowApiSetup(true)}
-                    className="px-4 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors font-medium"
-                  >
-                    Setup API Tokens
-                  </button>
-                  <p className="text-xs text-gray-500 mt-2">
-                    You can configure both Demo and Real API tokens
-                  </p>
-                </div>
-              )}
+                )}
+              </div>
             </div>
 
             {/* Account Status */}
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Account Status</h3>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-gray-600">Verification</span>
-                  <div className="flex items-center space-x-2">
-                    <Shield className="w-4 h-4 text-green-600" />
-                    <span className="text-green-600">Verified</span>
+            <div className="bg-white rounded-lg shadow-md border border-gray-100">
+              <div className="p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Account Status</h3>
+                <div className="space-y-4">
+                  <div className="h-10 flex items-center justify-between p-3 bg-green-50 border border-green-200 rounded-lg">
+                    <span className="text-gray-700 font-medium">Verification</span>
+                    <div className="flex items-center space-x-2">
+                      <Shield className="w-4 h-4 text-green-600" />
+                      <span className="text-green-600 font-medium">Verified</span>
+                    </div>
                   </div>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-gray-600">Plan</span>
-                  <span className="text-blue-600 font-medium">Premium</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-gray-600">API Status</span>
-                  <span className="text-green-600">Connected</span>
+                  <div className="h-10 flex items-center justify-between p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <span className="text-gray-700 font-medium">Plan</span>
+                    <span className="text-blue-600 font-bold">Premium</span>
+                  </div>
+                  <div className="h-10 flex items-center justify-between p-3 bg-green-50 border border-green-200 rounded-lg">
+                    <span className="text-gray-700 font-medium">API Status</span>
+                    <span className="text-green-600 font-medium">Connected</span>
+                  </div>
                 </div>
               </div>
             </div>
 
             {/* Quick Actions */}
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
-              <div className="space-y-2">
-                <button className="w-full text-left p-3 text-gray-700 hover:bg-gray-50 rounded-lg transition-colors">
-                  <div className="flex items-center space-x-3">
-                    <DollarSign className="w-4 h-4 text-blue-600" />
-                    <span>Add Funds</span>
-                  </div>
-                </button>
-                <button className="w-full text-left p-3 text-gray-700 hover:bg-gray-50 rounded-lg transition-colors">
-                  <div className="flex items-center space-x-3">
-                    <BarChart3 className="w-4 h-4 text-green-600" />
-                    <span>View Reports</span>
-                  </div>
-                </button>
-                <button className="w-full text-left p-3 text-gray-700 hover:bg-gray-50 rounded-lg transition-colors">
-                  <div className="flex items-center space-x-3">
-                    <Settings className="w-4 h-4 text-gray-600" />
-                    <span>Trading Settings</span>
-                  </div>
-                </button>
-                <button className="w-full text-left p-3 text-gray-700 hover:bg-gray-50 rounded-lg transition-colors">
-                  <div className="flex items-center space-x-3">
-                    <Bell className="w-4 h-4 text-purple-600" />
-                    <span>Notifications</span>
-                  </div>
-                </button>
+            <div className="bg-white rounded-lg shadow-md border border-gray-100">
+              <div className="p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
+                <div className="space-y-2">
+                  <button className="w-full h-12 text-left p-3 text-gray-700 hover:bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg transition-all duration-200 border border-transparent hover:border-blue-200">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
+                        <DollarSign className="w-4 h-4 text-blue-600" />
+                      </div>
+                      <span className="font-medium">Add Funds</span>
+                    </div>
+                  </button>
+                  <button className="w-full h-12 text-left p-3 text-gray-700 hover:bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg transition-all duration-200 border border-transparent hover:border-green-200">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
+                        <BarChart3 className="w-4 h-4 text-green-600" />
+                      </div>
+                      <span className="font-medium">View Reports</span>
+                    </div>
+                  </button>
+                  <button className="w-full h-12 text-left p-3 text-gray-700 hover:bg-gradient-to-r from-gray-50 to-slate-50 rounded-lg transition-all duration-200 border border-transparent hover:border-gray-200">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center">
+                        <Settings className="w-4 h-4 text-gray-600" />
+                      </div>
+                      <span className="font-medium">Trading Settings</span>
+                    </div>
+                  </button>
+                  <button className="w-full h-12 text-left p-3 text-gray-700 hover:bg-gradient-to-r from-purple-50 to-violet-50 rounded-lg transition-all duration-200 border border-transparent hover:border-purple-200">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
+                        <Bell className="w-4 h-4 text-purple-600" />
+                      </div>
+                      <span className="font-medium">Notifications</span>
+                    </div>
+                  </button>
+                </div>
               </div>
             </div>
 
             {/* Deriv Connection Status */}
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Deriv Integration</h3>
-              <div className="text-center">
-                {user?.deriv_account_id ? (
-                  <div>
-                    <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                      <Shield className="w-6 h-6 text-green-600" />
+            <div className="bg-white rounded-lg shadow-md border border-gray-100">
+              <div className="p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Deriv Integration</h3>
+                <div className="text-center">
+                  {user?.deriv_account_id ? (
+                    <div className="h-32 flex flex-col items-center justify-center">
+                      <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-3">
+                        <Shield className="w-8 h-8 text-green-600" />
+                      </div>
+                      <p className="text-green-600 font-bold text-lg">Connected</p>
+                      <p className="text-sm text-gray-600 mt-1 font-mono bg-gray-50 px-2 py-1 rounded">
+                        {user.deriv_account_id}
+                      </p>
                     </div>
-                    <p className="text-green-600 font-medium">Connected</p>
-                    <p className="text-sm text-gray-600 mt-1">Account: {user.deriv_account_id}</p>
-                  </div>
-                ) : (
-                  <div>
-                    <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                      <Shield className="w-6 h-6 text-orange-600" />
+                  ) : (
+                    <div className="h-32 flex flex-col items-center justify-center">
+                      <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mb-3">
+                        <Shield className="w-8 h-8 text-orange-600" />
+                      </div>
+                      <p className="text-orange-600 font-bold text-lg mb-3">Not Connected</p>
+                      <button className="w-full h-10 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors font-medium">
+                        Connect Deriv Account
+                      </button>
                     </div>
-                    <p className="text-orange-600 font-medium">Not Connected</p>
-                    <button className="mt-2 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors">
-                      Connect Deriv Account
-                    </button>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             </div>
           </div>

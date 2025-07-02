@@ -83,14 +83,6 @@ const ApiTokenSetup = ({ isOpen, onClose, onSuccess, user, currentAccountType })
     }
   };
 
-  const clearTokenField = (tokenType) => {
-    if (tokenType === 'demo') {
-      setDemoApiToken('');
-    } else {
-      setRealApiToken('');
-    }
-  };
-
   if (!isOpen) return null;
 
   const currentToken = activeTab === 'demo' ? demoApiToken : realApiToken;

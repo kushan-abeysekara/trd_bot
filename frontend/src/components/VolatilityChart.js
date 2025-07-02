@@ -11,6 +11,9 @@ const VolatilityChart = ({ onLastDigitUpdate }) => {
   const [isLoading, setIsLoading] = useState(false);
   const canvasRef = useRef(null);
   const intervalRef = useRef(null);
+  const [realtimeStream, setRealtimeStream] = useState(null);
+  const [tickData, setTickData] = useState([]);
+  const [priceHistory, setPriceHistory] = useState([]);
 
   const volatilityIndices = [
     { value: 'volatility_10_1s', label: 'Volatility 10 (1s) Index', color: '#3B82F6' },
@@ -85,15 +88,18 @@ const VolatilityChart = ({ onLastDigitUpdate }) => {
     const digit = Math.floor(price * 100) % 10;
     setLastDigit(digit);
     if (onLastDigitUpdate) {
-      onLastDigitUpdate(digit, selectedIndexData.label);
+      onLastDigitUpdate(digit, selectedIndexData.label, price, chartData);
     }
   };
 
-  // Simulate real-time updates
+  // Enhanced real-time updates with faster intervals
   const startRealTimeUpdates = () => {
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
     }
+
+    // Much faster updates for 1s indices
+    const updateInterval = selectedIndex.includes('1s') ? 200 : 1000; // 200ms for 1s, 1s for others
 
     intervalRef.current = setInterval(() => {
       if (chartData.length > 0) {
@@ -103,14 +109,17 @@ const VolatilityChart = ({ onLastDigitUpdate }) => {
                           selectedIndex.includes('50') ? 0.012 : 
                           selectedIndex.includes('25') ? 0.008 : 0.005;
         
+        // Enhanced price simulation with micro-movements
         const change = (Math.random() - 0.5) * lastPrice * volatility;
-        const newPrice = Math.max(lastPrice + change, 100);
+        const microChange = (Math.random() - 0.5) * lastPrice * 0.001; // Small micro movements
+        const newPrice = Math.max(lastPrice + change + microChange, 100);
         const now = Date.now();
         
         const newDataPoint = {
           timestamp: now,
           price: newPrice,
-          time: new Date(now).toLocaleTimeString()
+          time: new Date(now).toLocaleTimeString(),
+          tick: Math.floor(Math.random() * 1000) // Simulated tick ID
         };
 
         setChartData(prev => {
@@ -118,10 +127,16 @@ const VolatilityChart = ({ onLastDigitUpdate }) => {
           return updated;
         });
         
+        // Store tick data for advanced analysis
+        setTickData(prev => [...prev.slice(-500), newDataPoint]); // Keep last 500 ticks
+        
         setCurrentPrice(newPrice);
         updateLastDigit(newPrice);
+        
+        // Update price history for trend analysis
+        setPriceHistory(prev => [...prev.slice(-100), newPrice]);
       }
-    }, selectedIndex.includes('1s') ? 500 : 5000); // Changed from 1000 to 500 (0.5 seconds)
+    }, updateInterval);
   };
 
   // Draw chart on canvas
@@ -276,7 +291,7 @@ const VolatilityChart = ({ onLastDigitUpdate }) => {
         <div>
           <p className="text-sm text-gray-600">Current Price</p>
           <p className="text-xl font-bold text-gray-900">
-            {currentPrice ? currentPrice.toFixed(2) : '---'}
+            {currentPrice && typeof currentPrice === 'number' ? currentPrice.toFixed(2) : '---'}
           </p>
         </div>
         <div className="text-right">
@@ -307,8 +322,12 @@ const VolatilityChart = ({ onLastDigitUpdate }) => {
       
       {/* Chart info */}
       <div className="mt-4 flex items-center justify-between text-sm text-gray-500">
-        <span>Real-time data • Updates every {selectedIndex.includes('1s') ? '0.5 seconds' : '5 seconds'}</span>
-        <span>{chartData.length} data points</span>
+        <span>Real-time data • Updates every {selectedIndex.includes('1s') ? '0.2 seconds' : '1 second'}</span>
+        <div className="flex items-center space-x-4">
+          <span>{chartData.length} data points</span>
+          <span>{tickData.length} ticks</span>
+          <span className="text-green-500">● Live</span>
+        </div>
       </div>
     </div>
   );
