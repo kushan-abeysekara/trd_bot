@@ -25,6 +25,16 @@ const AITradingBot = ({ user }) => {
   const [showSettings, setShowSettings] = useState(false);
   const [tempSettings, setTempSettings] = useState({});
   
+  // Real-time trading updates
+  const [liveStatus, setLiveStatus] = useState(null);
+  const [activeTrades, setActiveTrades] = useState([]);
+  const [tradeHistory, setTradeHistory] = useState([]);
+  const [marketData, setMarketData] = useState(null);
+  
+  // Contract analysis
+  const [contractAnalysis, setContractAnalysis] = useState({});
+  const [aiPredictions, setAiPredictions] = useState({});
+
   // Contract types for display
   const contractTypes = {
     'rise_fall': { name: 'Rise/Fall', color: 'blue', icon: '📈' },
@@ -120,24 +130,93 @@ const AITradingBot = ({ user }) => {
     }
   };
 
+  // Load live trading status with real-time updates
+  const loadLiveStatus = useCallback(async () => {
+    try {
+      const response = await tradingAPI.getLiveTradingStatus();
+      if (response.success) {
+        setLiveStatus(response.data);
+        
+        // Update active trades if bot is running
+        if (response.data.is_active) {
+          await loadActiveTrades();
+          await loadMarketData();
+          await loadAIPredictions();
+        }
+      }
+    } catch (error) {
+      console.error('Error loading live status:', error);
+    }
+  }, []);
+
+  const loadActiveTrades = async () => {
+    try {
+      const response = await tradingAPI.getActiveTrades();
+      if (response.success) {
+        setActiveTrades(response.data);
+      }
+    } catch (error) {
+      console.error('Error loading active trades:', error);
+    }
+  };
+
+  const loadMarketData = async () => {
+    try {
+      const response = await tradingAPI.getCurrentMarketData();
+      if (response.success) {
+        setMarketData(response.data);
+      }
+    } catch (error) {
+      console.error('Error loading market data:', error);
+    }
+  };
+
+  const loadAIPredictions = async () => {
+    try {
+      const response = await tradingAPI.getAIPredictions();
+      if (response.success) {
+        setAiPredictions(response.data);
+      }
+    } catch (error) {
+      console.error('Error loading AI predictions:', error);
+    }
+  };
+
+  // Start real-time updates when bot is active
+  useEffect(() => {
+    if (botStatus?.is_active) {
+      // Update every 2 seconds when bot is active
+      const interval = setInterval(() => {
+        loadLiveStatus();
+      }, 2000);
+      
+      updateInterval.current = interval;
+      return () => clearInterval(interval);
+    } else {
+      // Update every 10 seconds when bot is inactive
+      const interval = setInterval(() => {
+        loadBotStatus();
+      }, 10000);
+      
+      updateInterval.current = interval;
+      return () => clearInterval(interval);
+    }
+  }, [botStatus?.is_active, loadLiveStatus]);
+
   const startBot = async () => {
     try {
       setIsLoading(true);
-      setError(null);
-      
-      const response = await tradingAPI.startTradingBot({
-        api_token: user.deriv_api_token,
-        account_type: user.deriv_account_type || 'demo',
-        settings: tempSettings
-      });
+      const response = await tradingAPI.startBot();
       
       if (response.success) {
-        await loadBotStatus();
+        await loadBotData();
+        // Start frequent updates
+        loadLiveStatus();
       } else {
         setError(response.message || 'Failed to start bot');
       }
     } catch (error) {
-      setError(error.response?.data?.error || 'Failed to start bot');
+      setError('Failed to start trading bot');
     } finally {
       setIsLoading(false);
     }
@@ -146,17 +225,17 @@ const AITradingBot = ({ user }) => {
   const stopBot = async () => {
     try {
       setIsLoading(true);
-      setError(null);
-      
-      const response = await tradingAPI.stopTradingBot();
+      const response = await tradingAPI.stopBot();
       
       if (response.success) {
-        await loadBotStatus();
+        await loadBotData();
+        setActiveTrades([]);
+        setLiveStatus(null);
       } else {
         setError(response.message || 'Failed to stop bot');
       }
     } catch (error) {
-      setError(error.response?.data?.error || 'Failed to stop bot');
+      setError('Failed to stop trading bot');
     } finally {
       setIsLoading(false);
     }
@@ -232,41 +311,249 @@ const AITradingBot = ({ user }) => {
     return `${(value * 100).toFixed(2)}%`;
   };
 
-  return (
-    <div className="bg-white rounded-lg shadow-lg border border-gray-200">
-      {/* Header */}
-      <div className="p-6 border-b border-gray-200">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className={`w-12 h-12 rounded-lg flex items-center justify-center transition-colors ${
-              botStatus?.is_active ? 'bg-green-100' : 'bg-gray-100'
-            }`}>
-              <Bot className={`w-6 h-6 transition-colors ${
-                botStatus?.is_active ? 'text-green-600' : 'text-gray-400'
-              }`} />
+  // Render live trading dashboard
+  const renderLiveTradingDashboard = () => {
+    if (!liveStatus || !liveStatus.is_active) return null;
+
+    return (
+      <div className="space-y-6">
+        {/* Live Status Bar */}
+        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+              <span className="text-green-800 font-medium">Bot Active - Live Trading</span>
             </div>
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900">AI Trading Bot</h3>
-              <p className="text-sm text-gray-600">
-                {botStatus?.is_active ? 'Active • Monitoring markets' : 'Inactive • Ready to trade'}
-              </p>
+            <div className="text-sm text-green-600">
+              Last Update: {new Date(liveStatus.timestamp).toLocaleTimeString()}
             </div>
           </div>
-          
-          {/* Status indicator */}
-          <div className="flex items-center space-x-4">
-            <div className={`w-3 h-3 rounded-full ${
-              botStatus?.is_active ? 'bg-green-400 animate-pulse' : 'bg-gray-300'
-            }`}></div>
-            
-            {lastUpdate && (
-              <span className="text-xs text-gray-500">
-                Updated: {lastUpdate.toLocaleTimeString()}
-              </span>
+        </div>
+
+        {/* Market Data & AI Predictions */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Current Market Analysis */}
+          <div className="bg-white rounded-lg shadow p-6">
+            <h3 className="text-lg font-semibold mb-4 flex items-center">
+              <Activity className="mr-2" size={20} />
+              Market Analysis
+            </h3>
+            {marketData && (
+              <div className="space-y-3">
+                <div className="flex justify-between">
+                  <span>Current Price:</span>
+                  <span className="font-mono">{marketData.current_price?.toFixed(5)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Volatility:</span>
+                  <span className={`font-mono ${marketData.volatility > 0.02 ? 'text-red-600' : 'text-green-600'}`}>
+                    {(marketData.volatility * 100).toFixed(3)}%
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Trend:</span>
+                  <span className={`font-mono ${marketData.trend > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {marketData.trend > 0 ? '↗️ Bullish' : '↘️ Bearish'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>RSI:</span>
+                  <span className={`font-mono ${marketData.rsi > 70 ? 'text-red-600' : marketData.rsi < 30 ? 'text-green-600' : 'text-gray-600'}`}>
+                    {marketData.rsi?.toFixed(1)}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* AI Predictions */}
+          <div className="bg-white rounded-lg shadow p-6">
+            <h3 className="text-lg font-semibold mb-4 flex items-center">
+              <Brain className="mr-2" size={20} />
+              AI Predictions
+            </h3>
+            {aiPredictions && (
+              <div className="space-y-3">
+                {Object.entries(contractTypes).slice(0, 4).map(([key, contract]) => {
+                  const prediction = aiPredictions[key];
+                  return (
+                    <div key={key} className="flex justify-between items-center">
+                      <span className="text-sm">{contract.icon} {contract.name}:</span>
+                      <div className="text-right">
+                        <div className={`text-sm font-medium ${prediction?.direction === 'up' ? 'text-green-600' : 'text-red-600'}`}>
+                          {prediction?.direction?.toUpperCase() || 'ANALYZING'}
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          {prediction?.confidence ? `${(prediction.confidence * 100).toFixed(0)}%` : 'N/A'}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </div>
         </div>
+
+        {/* Active Trades */}
+        <div className="bg-white rounded-lg shadow p-6">
+          <h3 className="text-lg font-semibold mb-4 flex items-center">
+            <Eye className="mr-2" size={20} />
+            Active Trades ({activeTrades.length})
+          </h3>
+          {activeTrades.length > 0 ? (
+            <div className="space-y-3">
+              {activeTrades.map((trade, index) => (
+                <div key={index} className="border rounded-lg p-4 bg-gray-50">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <div className="font-medium">
+                        {contractTypes[trade.contract_type]?.icon} {contractTypes[trade.contract_type]?.name}
+                      </div>
+                      <div className="text-sm text-gray-600">
+                        {trade.action?.toUpperCase()} | ${trade.stake_amount?.toFixed(2)}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        Started: {new Date(trade.start_time).toLocaleTimeString()}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className={`text-sm font-medium ${trade.action === 'call' ? 'text-green-600' : 'text-red-600'}`}>
+                        {(trade.confidence * 100).toFixed(0)}% Confidence
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {trade.contract_id?.slice(-8)}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Trade Progress Bar */}
+                  <div className="mt-3">
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div 
+                        className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                        style={{ 
+                          width: `${Math.min(100, ((Date.now() - new Date(trade.start_time).getTime()) / (trade.duration * 1000)) * 100)}%` 
+                        }}
+                      ></div>
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      Duration: {trade.duration}s
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center text-gray-500 py-8">
+              No active trades. Bot is analyzing market conditions...
+            </div>
+          )}
+        </div>
+
+        {/* Strategy Performance */}
+        <div className="bg-white rounded-lg shadow p-6">
+          <h3 className="text-lg font-semibold mb-4">Strategy Performance</h3>
+          {liveStatus.strategy_performance && (
+            <div className="grid grid-cols-3 gap-4">
+              {Object.entries(liveStatus.strategy_performance).map(([strategy, perf]) => (
+                <div key={strategy} className="text-center p-3 bg-gray-50 rounded">
+                  <div className="text-sm font-medium">{strategy.replace('_', ' ')}</div>
+                  <div className="text-lg font-bold text-green-600">
+                    {perf.total_trades > 0 ? `${((perf.wins / perf.total_trades) * 100).toFixed(0)}%` : 'N/A'}
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    {perf.total_trades} trades
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
+    );
+  };
+
+  return (
+    <div className="max-w-6xl mx-auto p-6 space-y-6">
+      {/* Header */}
+      <div className="flex justify-between items-center">
+        <div className="flex items-center space-x-3">
+          <Bot size={32} className="text-blue-600" />
+          <div>
+            <h1 className="text-2xl font-bold">AI Trading Bot</h1>
+            <p className="text-gray-600">
+              {botStatus?.is_active ? 'Live Trading Active' : 'Ready to Trade'}
+            </p>
+          </div>
+        </div>
+        
+        <div className="flex space-x-3">
+          {!botStatus?.is_active ? (
+            <button
+              onClick={startBot}
+              disabled={isLoading}
+              className="flex items-center space-x-2 bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 disabled:opacity-50"
+            >
+              <Play size={20} />
+              <span>{isLoading ? 'Starting...' : 'Start Bot'}</span>
+            </button>
+          ) : (
+            <button
+              onClick={stopBot}
+              disabled={isLoading}
+              className="flex items-center space-x-2 bg-red-600 text-white px-6 py-3 rounded-lg hover:bg-red-700 disabled:opacity-50"
+            >
+              <Square size={20} />
+              <span>{isLoading ? 'Stopping...' : 'Stop Bot'}</span>
+            </button>
+          )}
+          
+          <button
+            onClick={() => setShowSettings(true)}
+            className="flex items-center space-x-2 bg-gray-600 text-white px-4 py-3 rounded-lg hover:bg-gray-700"
+          >
+            <Settings size={20} />
+          </button>
+        </div>
+      </div>
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="text-red-800">{error}</div>
+        </div>
+      )}
+
+      {/* Live Trading Dashboard */}
+      {renderLiveTradingDashboard()}
+
+      {/* Bot Status Overview (when not active) */}
+      {!botStatus?.is_active && botStatus && (
+        <div className="bg-white rounded-lg shadow p-6">
+          <h2 className="text-xl font-semibold mb-4">Bot Status</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="text-center p-4 bg-blue-50 rounded-lg">
+              <DollarSign className="mx-auto mb-2 text-blue-600" size={24} />
+              <div className="text-lg font-bold">${botStatus.account_balance?.toFixed(2)}</div>
+              <div className="text-sm text-gray-600">Account Balance</div>
+            </div>
+            
+            <div className="text-center p-4 bg-green-50 rounded-lg">
+              <Target className="mx-auto mb-2 text-green-600" size={24} />
+              <div className="text-lg font-bold">{botStatus.daily_trades || 0}</div>
+              <div className="text-sm text-gray-600">Daily Trades</div>
+            </div>
+            
+            <div className="text-center p-4 bg-purple-50 rounded-lg">
+              <TrendingUp className="mx-auto mb-2 text-purple-600" size={24} />
+              <div className={`text-lg font-bold ${(botStatus.daily_pnl || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                ${(botStatus.daily_pnl || 0).toFixed(2)}
+              </div>
+              <div className="text-sm text-gray-600">Daily P&L</div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Error display */}
       {error && (
