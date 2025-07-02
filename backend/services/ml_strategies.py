@@ -302,289 +302,890 @@ class MLStrategyManager:
             logger.error(f"Error getting trading signal: {str(e)}")
             return None
     
-    # New method: Get trading signal with enhanced predictions
-    def get_trading_signal_with_predictions(self, contract_type, trading_mode, market_data, include_future_predictions=False):
-        """Get a trading signal with enhanced predictions for the given contract type and market data"""
+    # MODE A: MA-RSI Trend Strategy
+    def _ma_rsi_trend_strategy(self, market_data: Dict) -> Optional[TradingSignal]:
+        """Moving Average + RSI Trend following strategy"""
         try:
-            # First try the contract-specific ML strategy
-            if contract_type in self.contract_algorithms:
-                signal = self.contract_algorithms[contract_type](market_data)
-                if signal and signal['confidence'] > 0.5:
-                    # Enhance with future predictions if requested
-                    if include_future_predictions:
-                        signal['future_predictions'] = self._generate_future_predictions(contract_type, market_data)
-                    signal['source'] = 'ml_specialized'
-                    signal['strategy_used'] = contract_type.value
-                    return signal
-            
-            # Fall back to trading mode strategy if no strong signal from ML
-            if trading_mode in self.strategy_implementations:
-                signal = self.strategy_implementations[trading_mode](market_data)
-                if signal and signal['confidence'] > 0.5:
-                    # Add less detailed future predictions
-                    if include_future_predictions:
-                        signal['future_predictions'] = self._generate_simple_predictions(market_data)
-                    signal['source'] = 'strategy'
-                    signal['strategy_used'] = trading_mode.value
-                    return signal
-                    
-            # Final fallback - use general ML prediction
-            return self._get_general_ml_prediction(market_data, include_future_predictions)
+            price_history = market_data.get('price_history', [])
+            if len(price_history) < 20:
+                return None
                 
+            prices = np.array([p.get('price', p) if isinstance(p, dict) else p for p in price_history[-50:]])
+            current_price = prices[-1]
+            
+            # Calculate RSI
+            rsi = self._calculate_rsi(prices)
+            
+            # Calculate moving averages
+            if len(prices) >= 20:
+                sma_20 = np.mean(prices[-20:])
+                sma_50 = np.mean(prices[-50:]) if len(prices) >= 50 else sma_20
+                trend = (sma_20 - sma_50) / sma_50 if sma_50 > 0 else 0
+            else:
+                return None
+            
+            # Calculate volatility
+            returns = np.diff(prices) / prices[:-1]
+            volatility = np.std(returns) if len(returns) > 0 else 0.01
+            
+            # MA crossover signal
+            ma_signal = 'up' if trend > 0.001 else 'down' if trend < -0.001 else 'neutral'
+            
+            # RSI filter
+            rsi_oversold = rsi < 30
+            rsi_overbought = rsi > 70
+            rsi_neutral = 30 <= rsi <= 70
+            
+            # Combine signals
+            if ma_signal == 'up' and (rsi_oversold or rsi_neutral):
+                direction = 'up'
+                confidence = 0.75 if rsi_oversold else 0.65
+            elif ma_signal == 'down' and (rsi_overbought or rsi_neutral):
+                direction = 'down'
+                confidence = 0.75 if rsi_overbought else 0.65
+            else:
+                return None
+            
+            # Adjust duration based on volatility
+            duration = 300 if volatility < 0.01 else 180 if volatility < 0.02 else 60
+            
+            return TradingSignal(
+                direction=direction,
+                confidence=confidence,
+                duration=duration,
+                entry_price=current_price
+            )
+            
         except Exception as e:
-            logger.error(f"Error getting trading signal with predictions: {str(e)}")
+            logger.error(f"MA-RSI strategy error: {str(e)}")
             return None
     
-    def _generate_future_predictions(self, contract_type, market_data):
-        """Generate detailed future price/outcome predictions"""
+    # MODE B: Price Action Bounce Strategy
+    def _price_action_bounce_strategy(self, market_data: Dict) -> Optional[TradingSignal]:
+        """Price action reversal strategy looking for bounces"""
         try:
-            current_price = market_data.get('current_price', 1.0)
-            volatility = market_data.get('volatility', 0.01)
-            trend = market_data.get('trend', 0)
-            
-            # Extract contract-specific features
-            if contract_type == ContractType.DIGITS:
-                # Generate digit predictions
-                return self._generate_digit_predictions(market_data)
-            elif contract_type == ContractType.RISE_FALL:
-                # Generate price movement predictions
-                return self._generate_price_predictions(market_data)
-            elif contract_type == ContractType.TOUCH_NO_TOUCH:
-                # Generate touch/no-touch predictions
-                return self._generate_touch_predictions(market_data)
-            else:
-                # Generic prediction for other types
-                return self._generate_simple_predictions(market_data)
-                
-        except Exception as e:
-            logger.error(f"Error generating future predictions: {str(e)}")
-            return {
-                'error': 'Failed to generate predictions',
-                'timestamp': datetime.now().isoformat()
-            }
-    
-    def _generate_digit_predictions(self, market_data):
-        """Generate predictions for the next digits in price"""
-        try:
-            # Get historical digits
-            digit_history = []
-            if 'digit_history' in market_data:
-                digit_history = market_data['digit_history']
-            elif 'tick_history' in market_data:
-                # Extract digits from tick history
-                tick_history = market_data.get('tick_history', [])
-                digit_history = [int(str(float(t['price']))[-1]) for t in tick_history]
-            
-            # Default if no history available
-            if not digit_history:
-                digit_history = [random.randint(0, 9) for _ in range(10)]
-            
-            # Calculate digit frequencies
-            frequencies = {}
-            for i in range(10):
-                frequencies[i] = digit_history.count(i) / len(digit_history)
-            
-            # Generate predictions for next 5 digits
-            predictions = []
-            for i in range(5):
-                # More sophisticated prediction would use ML model here
-                # For demo, we'll use weighted frequencies with some randomness
-                weights = [frequencies[d] + random.random() * 0.2 for d in range(10)]
-                total_weight = sum(weights)
-                normalized_weights = [w / total_weight for w in weights]
-                
-                # Weighted random selection
-                r = random.random()
-                cumulative = 0
-                predicted_digit = 0
-                for d in range(10):
-                    cumulative += normalized_weights[d]
-                    if r <= cumulative:
-                        predicted_digit = d
-                        break
-                
-                # Calculate confidence based on historical frequency
-                confidence = min(0.95, max(0.5, frequencies.get(predicted_digit, 0.1) * 2))
-                
-                predictions.append({
-                    'digit': predicted_digit,
-                    'confidence': confidence,
-                    'time_offset': (i + 1) * 5  # seconds in future
-                })
-            
-            return {
-                'type': 'digit',
-                'predictions': predictions,
-                'digit_frequencies': frequencies,
-                'timestamp': datetime.now().isoformat()
-            }
-            
-        except Exception as e:
-            logger.error(f"Error generating digit predictions: {str(e)}")
-            return {'error': str(e)}
-    
-    def _generate_price_predictions(self, market_data):
-        """Generate price movement predictions"""
-        try:
-            current_price = market_data.get('current_price', 1.0)
-            volatility = market_data.get('volatility', 0.01)
-            trend = market_data.get('trend', 0)
-            
-            # Generate price predictions for 5, 10, 15, 30 seconds
-            predictions = []
-            time_frames = [5, 10, 15, 30]  # seconds
-            
-            for seconds in time_frames:
-                # Price prediction formula (in real implementation would use ML)
-                # Here we use trend direction + scaled volatility + some noise
-                scale_factor = seconds / 10
-                trend_component = trend * scale_factor
-                volatility_component = volatility * scale_factor
-                noise = (random.random() - 0.5) * volatility * scale_factor
-                
-                price_change = trend_component + noise
-                predicted_price = current_price + price_change
-                
-                # Direction confidence
-                if abs(trend) > volatility * 2:
-                    # Strong trend relative to volatility = higher confidence
-                    direction_confidence = min(0.95, 0.6 + abs(trend) / volatility * 0.2)
-                else:
-                    # Weaker trend = lower confidence
-                    direction_confidence = max(0.5, 0.5 + abs(trend) / volatility * 0.1)
-                
-                predictions.append({
-                    'seconds': seconds,
-                    'predicted_price': predicted_price,
-                    'price_change': price_change,
-                    'direction': 'up' if price_change > 0 else 'down',
-                    'confidence': direction_confidence
-                })
-            
-            return {
-                'type': 'price',
-                'current_price': current_price,
-                'predictions': predictions,
-                'timestamp': datetime.now().isoformat()
-            }
-            
-        except Exception as e:
-            logger.error(f"Error generating price predictions: {str(e)}")
-            return {'error': str(e)}
-    
-    def _generate_touch_predictions(self, market_data):
-        """Generate touch/no-touch predictions"""
-        try:
-            current_price = market_data.get('current_price', 1.0)
-            volatility = market_data.get('volatility', 0.01)
-            
-            # Define barriers (would be dynamically calculated in production)
-            upper_barrier = current_price + volatility * 15
-            lower_barrier = current_price - volatility * 15
-            
-            # Predict touch probability
-            predictions = []
-            time_frames = [30, 60, 120, 300]  # seconds
-            
-            for seconds in time_frames:
-                # Simple model: longer timeframe = higher touch probability
-                time_factor = seconds / 60
-                touch_probability_upper = min(0.9, 0.3 + time_factor * volatility * 10)
-                touch_probability_lower = min(0.9, 0.3 + time_factor * volatility * 10)
-                
-                predictions.append({
-                    'seconds': seconds,
-                    'upper_barrier': upper_barrier,
-                    'lower_barrier': lower_barrier,
-                    'upper_touch_probability': touch_probability_upper,
-                    'lower_touch_probability': touch_probability_lower
-                })
-            
-            return {
-                'type': 'touch',
-                'current_price': current_price,
-                'predictions': predictions,
-                'timestamp': datetime.now().isoformat()
-            }
-            
-        except Exception as e:
-            logger.error(f"Error generating touch predictions: {str(e)}")
-            return {'error': str(e)}
-    
-    def _generate_simple_predictions(self, market_data):
-        """Generate simple price direction predictions"""
-        try:
-            current_price = market_data.get('current_price', 1.0)
-            trend = market_data.get('trend', 0)
-            
-            # Simple trend-based prediction
-            prediction = {
-                'type': 'simple',
-                'next_direction': 'up' if trend > 0 else 'down',
-                'confidence': min(0.9, 0.5 + abs(trend) * 10),
-                'timestamp': datetime.now().isoformat()
-            }
-            
-            return prediction
-            
-        except Exception as e:
-            logger.error(f"Error generating simple predictions: {str(e)}")
-            return {'error': str(e)}
-    
-    def _get_general_ml_prediction(self, market_data, include_predictions=False):
-        """Get a general ML prediction when specific strategies don't yield good signals"""
-        try:
-            # Extract basic features
-            current_price = market_data.get('current_price', 1.0)
-            trend = market_data.get('trend', 0)
+            current_price = market_data.get('current_price', 0)
             rsi = market_data.get('rsi', 50)
+            volatility = market_data.get('volatility', 0.01)
             momentum = market_data.get('momentum', 0)
             
-            # Determine direction
-            if trend > 0 and rsi < 70:
-                action = 'call'
-                confidence = min(0.85, 0.5 + abs(trend) * 5 + max(0, (70 - rsi) / 100))
-            elif trend < 0 and rsi > 30:
-                action = 'put'
-                confidence = min(0.85, 0.5 + abs(trend) * 5 + max(0, (rsi - 30) / 100))
-            elif rsi > 75:
-                action = 'put'
-                confidence = min(0.8, 0.5 + (rsi - 75) / 25)
-            elif rsi < 25:
-                action = 'call'
-                confidence = min(0.8, 0.5 + (25 - rsi) / 25)
+            # Look for reversal conditions
+            oversold_bounce = rsi < 25 and momentum > 0
+            overbought_bounce = rsi > 75 and momentum < 0
+            
+            # Support/Resistance levels (simplified)
+            price_change = market_data.get('price_change', 0)
+            at_support = price_change < -0.002 and momentum > 0
+            at_resistance = price_change > 0.002 and momentum < 0
+            
+            if oversold_bounce or at_support:
+                direction = 'up'
+                confidence = 0.8 if oversold_bounce else 0.7
+            elif overbought_bounce or at_resistance:
+                direction = 'down'
+                confidence = 0.8 if overbought_bounce else 0.7
             else:
-                # No strong signal
-                action = 'call' if random.random() > 0.5 else 'put'
-                confidence = 0.55
+                return None
             
-            # Create signal
-            signal = {
-                'action': action,
-                'confidence': confidence,
-                'time_frame': '5s',
-                'source': 'general_ml',
-                'strategy_used': 'general_prediction',
-                'entry_price': current_price,
-                'rsi': rsi,
-                'trend': trend
-            }
+            # Shorter duration for bounce strategy
+            duration = 120 if volatility > 0.015 else 180
             
-            # Add predictions if requested
-            if include_predictions:
-                if action == 'call':
-                    predicted_movement = trend if trend > 0 else abs(momentum) * 0.5
-                else:
-                    predicted_movement = trend if trend < 0 else -abs(momentum) * 0.5
-                    
-                signal['predicted_movement'] = predicted_movement
-                signal['future_predictions'] = self._generate_simple_predictions(market_data)
-            
-            return signal
+            return TradingSignal(
+                direction=direction,
+                confidence=confidence,
+                duration=duration,
+                entry_price=current_price
+            )
             
         except Exception as e:
-            logger.error(f"Error in general ML prediction: {str(e)}")
+            logger.error(f"Price action bounce strategy error: {str(e)}")
             return None
+    
+    # MODE C: Random Entry Smart Exit Strategy
+    def _random_entry_smart_exit_strategy(self, market_data: Dict) -> Optional[TradingSignal]:
+        """Random entry with intelligent exit strategy"""
+        try:
+            current_price = market_data.get('current_price', 0)
+            volatility = market_data.get('volatility', 0.01)
+            
+            # Random direction but with volatility bias
+            if volatility > 0.02:
+                # High volatility - prefer shorter duration
+                duration = 60
+                confidence = 0.6
+            elif volatility < 0.005:
+                # Low volatility - longer duration
+                duration = 300
+                confidence = 0.65
+            else:
+                duration = 180
+                confidence = 0.62
+            
+            # Random direction
+            direction = 'up' if np.random.random() > 0.5 else 'down'
+            
+            # Smart exit parameters
+            stop_loss = current_price * 0.9995 if direction == 'up' else current_price * 1.0005
+            target_price = current_price * 1.0005 if direction == 'up' else current_price * 0.9995
+            
+            return TradingSignal(
+                direction=direction,
+                confidence=confidence,
+                duration=duration,
+                entry_price=current_price,
+                stop_loss=stop_loss,
+                target_price=target_price
+            )
+            
+        except Exception as e:
+            logger.error(f"Random entry strategy error: {str(e)}")
+            return None
+    
+    # Contract-specific ML strategies
+    def _rise_fall_ml_strategy(self, market_data: Dict, base_signal: TradingSignal) -> TradingSignal:
+        """ML strategy for Rise/Fall contracts"""
+        try:
+            features = self.extract_features(market_data, ContractType.RISE_FALL)
+            if features is None:
+                return base_signal
+            
+            # Get ML prediction
+            prediction = self._get_ml_prediction(ContractType.RISE_FALL, features)
+            
+            # Adjust signal based on ML prediction
+            if prediction['confidence'] > 0.7:
+                base_signal.direction = prediction['direction']
+                base_signal.confidence = min(0.95, base_signal.confidence * prediction['confidence'])
+            
+            # Adjust duration based on volatility
+            volatility = market_data.get('volatility', 0.01)
+            if volatility > 0.02:
+                base_signal.duration = min(base_signal.duration, 120)
+            
+            return base_signal
+            
+        except Exception as e:
+            logger.error(f"Rise/Fall ML strategy error: {str(e)}")
+            return base_signal
+    
+    def _touch_no_touch_ml_strategy(self, market_data: Dict, base_signal: TradingSignal) -> TradingSignal:
+        """ML strategy for Touch/No Touch contracts"""
+        try:
+            features = self.extract_features(market_data, ContractType.TOUCH_NO_TOUCH)
+            if features is None:
+                return base_signal
+            
+            current_price = market_data.get('current_price', 0)
+            volatility = market_data.get('volatility', 0.01)
+            
+            # Calculate optimal barriers
+            upper_barrier = current_price * (1 + volatility * 2)
+            lower_barrier = current_price * (1 - volatility * 2)
+            
+            # Get ML prediction for touch probability
+            prediction = self._get_ml_prediction(ContractType.TOUCH_NO_TOUCH, features)
+            
+            # Determine touch vs no-touch based on volatility and ML prediction
+            if volatility > 0.015 and prediction['confidence'] > 0.6:
+                base_signal.direction = 'touch'
+                base_signal.confidence = prediction['confidence']
+            else:
+                base_signal.direction = 'no_touch'
+                base_signal.confidence = max(0.6, 1 - prediction['confidence'])
+            
+            # Add barrier information
+            base_signal.contract_specific_params = {
+                'upper_barrier': upper_barrier,
+                'lower_barrier': lower_barrier,
+                'barrier_type': 'symmetric'
+            }
+            
+            return base_signal
+            
+        except Exception as e:
+            logger.error(f"Touch/No Touch ML strategy error: {str(e)}")
+            return base_signal
+    
+    def _in_out_ml_strategy(self, market_data: Dict, base_signal: TradingSignal) -> TradingSignal:
+        """ML strategy for In/Out (Boundary) contracts"""
+        try:
+            features = self.extract_features(market_data, ContractType.IN_OUT)
+            if features is None:
+                return base_signal
+            
+            current_price = market_data.get('current_price', 0)
+            volatility = market_data.get('volatility', 0.01)
+            
+            # Calculate boundaries
+            upper_boundary = current_price * (1 + volatility * 1.5)
+            lower_boundary = current_price * (1 - volatility * 1.5)
+            
+            # Get ML prediction
+            prediction = self._get_ml_prediction(ContractType.IN_OUT, features)
+            
+            # Low volatility favors "stays in", high volatility favors "goes out"
+            if volatility < 0.01 and prediction['confidence'] > 0.65:
+                base_signal.direction = 'in'
+                base_signal.confidence = prediction['confidence']
+            elif volatility > 0.02:
+                base_signal.direction = 'out'
+                base_signal.confidence = max(0.6, prediction['confidence'])
+            else:
+                base_signal.direction = 'in' if prediction['direction'] == 'stable' else 'out'
+                base_signal.confidence = prediction['confidence']
+            
+            base_signal.contract_specific_params = {
+                'upper_boundary': upper_boundary,
+                'lower_boundary': lower_boundary
+            }
+            
+            return base_signal
+            
+        except Exception as e:
+            logger.error(f"In/Out ML strategy error: {str(e)}")
+            return base_signal
+    
+    def _asians_ml_strategy(self, market_data: Dict, base_signal: TradingSignal) -> TradingSignal:
+        """ML strategy for Asian options"""
+        try:
+            features = self.extract_features(market_data, ContractType.ASIANS)
+            if features is None:
+                return base_signal
+            
+            # Asian options depend on average price
+            price_history = market_data.get('price_history', [])
+            if len(price_history) >= 20:
+                recent_avg = np.mean([p['price'] for p in price_history[-20:]])
+                current_price = market_data.get('current_price', recent_avg)
+                
+                # Get ML prediction
+                prediction = self._get_ml_prediction(ContractType.ASIANS, features)
+                
+                # Predict if final average will be higher or lower
+                if prediction['confidence'] > 0.7:
+                    base_signal.direction = 'higher' if prediction['direction'] == 'up' else 'lower'
+                    base_signal.confidence = prediction['confidence']
+                
+                # Longer duration for Asian options
+                base_signal.duration = max(300, base_signal.duration)
+                
+                base_signal.contract_specific_params = {
+                    'current_average': recent_avg,
+                    'prediction_type': 'average_comparison'
+                }
+            
+            return base_signal
+            
+        except Exception as e:
+            logger.error(f"Asian options ML strategy error: {str(e)}")
+            return base_signal
+    
+    def _digits_ml_strategy(self, market_data: Dict, base_signal: TradingSignal) -> TradingSignal:
+        """ML strategy for Digit contracts"""
+        try:
+            features = self.extract_features(market_data, ContractType.DIGITS)
+            if features is None:
+                return base_signal
+            
+            # Analyze digit patterns
+            price_history = market_data.get('price_history', [])
+            if len(price_history) >= 20:
+                recent_digits = [int((p['price'] * 100) % 10) for p in price_history[-20:]]
+                current_digit = recent_digits[-1] if recent_digits else 0
+                
+                # Frequency analysis
+                digit_freq = {i: recent_digits.count(i) for i in range(10)}
+                least_frequent = min(digit_freq, key=digit_freq.get)
+                most_frequent = max(digit_freq, key=digit_freq.get)
+                
+                # Get ML prediction for next digit
+                prediction = self._get_ml_prediction(ContractType.DIGITS, features)
+                
+                # Strategy: bet on less frequent digits (mean reversion)
+                if digit_freq[least_frequent] <= 1 and prediction['confidence'] > 0.6:
+                    predicted_digit = least_frequent
+                    confidence = 0.7
+                else:
+                    # Use ML prediction
+                    predicted_digit = int(prediction.get('predicted_digit', current_digit))
+                    confidence = prediction['confidence']
+                
+                base_signal.direction = str(predicted_digit)
+                base_signal.confidence = confidence
+                base_signal.duration = 60  # Short duration for digits
+                
+                base_signal.contract_specific_params = {
+                    'target_digit': predicted_digit,
+                    'digit_frequencies': digit_freq,
+                    'strategy': 'frequency_based'
+                }
+            
+            return base_signal
+            
+        except Exception as e:
+            logger.error(f"Digits ML strategy error: {str(e)}")
+            return base_signal
+    
+    def _reset_call_put_ml_strategy(self, market_data: Dict, base_signal: TradingSignal) -> TradingSignal:
+        """ML strategy for Reset Call/Put contracts"""
+        try:
+            features = self.extract_features(market_data, ContractType.RESET_CALL_PUT)
+            if features is None:
+                return base_signal
+            
+            current_price = market_data.get('current_price', 0)
+            volatility = market_data.get('volatility', 0.01)
+            trend = market_data.get('trend', 0)
+            
+            # Get ML prediction
+            prediction = self._get_ml_prediction(ContractType.RESET_CALL_PUT, features)
+            
+            # Reset call/put strategy
+            if trend > 0.001 and prediction['confidence'] > 0.65:
+                base_signal.direction = 'call'
+                barrier_level = current_price * 1.001
+            elif trend < -0.001 and prediction['confidence'] > 0.65:
+                base_signal.direction = 'put'
+                barrier_level = current_price * 0.999
+            else:
+                base_signal.direction = 'call' if prediction['direction'] == 'up' else 'put'
+                barrier_level = current_price * (1.001 if base_signal.direction == 'call' else 0.999)
+            
+            base_signal.confidence = prediction['confidence']
+            base_signal.contract_specific_params = {
+                'barrier_level': barrier_level,
+                'reset_enabled': True
+            }
+            
+            return base_signal
+            
+        except Exception as e:
+            logger.error(f"Reset Call/Put ML strategy error: {str(e)}")
+            return base_signal
+    
+    def _high_low_ticks_ml_strategy(self, market_data: Dict, base_signal: TradingSignal) -> TradingSignal:
+        """ML strategy for High/Low Ticks contracts"""
+        try:
+            features = self.extract_features(market_data, ContractType.HIGH_LOW_TICKS)
+            if features is None:
+                return base_signal
+            
+            # Analyze recent tick patterns
+            price_history = market_data.get('price_history', [])
+            if len(price_history) >= 10:
+                recent_prices = [p['price'] for p in price_history[-10:]]
+                current_price = recent_prices[-1]
+                recent_high = max(recent_prices)
+                recent_low = min(recent_prices)
+                
+                # Get ML prediction
+                prediction = self._get_ml_prediction(ContractType.HIGH_LOW_TICKS, features)
+                
+                # Position analysis
+                position_in_range = (current_price - recent_low) / (recent_high - recent_low) if recent_high != recent_low else 0.5
+                
+                if position_in_range < 0.3 and prediction['direction'] == 'up':
+                    base_signal.direction = 'high'
+                    base_signal.confidence = prediction['confidence']
+                elif position_in_range > 0.7 and prediction['direction'] == 'down':
+                    base_signal.direction = 'low'
+                    base_signal.confidence = prediction['confidence']
+                else:
+                    base_signal.direction = 'high' if prediction['direction'] == 'up' else 'low'
+                    base_signal.confidence = max(0.6, prediction['confidence'])
+                
+                base_signal.duration = 30  # Very short duration for tick contracts
+                base_signal.contract_specific_params = {
+                    'tick_count': 5,
+                    'reference_high': recent_high,
+                    'reference_low': recent_low
+                }
+            
+            return base_signal
+            
+        except Exception as e:
+            logger.error(f"High/Low Ticks ML strategy error: {str(e)}")
+            return base_signal
+    
+    def _only_ups_downs_ml_strategy(self, market_data: Dict, base_signal: TradingSignal) -> TradingSignal:
+        """ML strategy for Only Ups/Downs contracts"""
+        try:
+            features = self.extract_features(market_data, ContractType.ONLY_UPS_DOWNS)
+            if features is None:
+                return base_signal
+            
+            # Analyze momentum and trend consistency
+            price_history = market_data.get('price_history', [])
+            if len(price_history) >= 10:
+                recent_changes = [
+                    (price_history[i]['price'] - price_history[i-1]['price']) / price_history[i-1]['price']
+                    for i in range(1, min(10, len(price_history)))
+                ]
+                
+                ups = sum(1 for change in recent_changes if change > 0)
+                downs = sum(1 for change in recent_changes if change < 0)
+                
+                # Get ML prediction
+                prediction = self._get_ml_prediction(ContractType.ONLY_UPS_DOWNS, features)
+                
+                # Trend consistency analysis
+                if ups > downs * 2 and prediction['direction'] == 'up':
+                    base_signal.direction = 'only_ups'
+                    base_signal.confidence = min(0.85, prediction['confidence'] * 1.1)
+                elif downs > ups * 2 and prediction['direction'] == 'down':
+                    base_signal.direction = 'only_downs'
+                    base_signal.confidence = min(0.85, prediction['confidence'] * 1.1)
+                else:
+                    base_signal.direction = 'only_ups' if prediction['direction'] == 'up' else 'only_downs'
+                    base_signal.confidence = prediction['confidence']
+                
+                base_signal.duration = 120  # Medium duration
+                base_signal.contract_specific_params = {
+                    'tick_count': 5,
+                    'direction_consistency': ups / (ups + downs) if (ups + downs) > 0 else 0.5
+                }
+            
+            return base_signal
+            
+        except Exception as e:
+            logger.error(f"Only Ups/Downs ML strategy error: {str(e)}")
+            return base_signal
+    
+    def _multipliers_ml_strategy(self, market_data: Dict, base_signal: TradingSignal) -> TradingSignal:
+        """ML strategy for Multipliers (leveraged trading)"""
+        try:
+            features = self.extract_features(market_data, ContractType.MULTIPLIERS)
+            if features is None:
+                return base_signal
+            
+            current_price = market_data.get('current_price', 0)
+            volatility = market_data.get('volatility', 0.01)
+            trend = market_data.get('trend', 0)
+            
+            # Get ML prediction
+            prediction = self._get_ml_prediction(ContractType.MULTIPLIERS, features)
+            
+            # Risk management for leveraged trading
+            if volatility > 0.02:
+                # High volatility - use lower multiplier and tight stops
+                multiplier = 10
+                stop_loss_pct = 0.5
+            elif volatility < 0.01:
+                # Low volatility - can use higher multiplier
+                multiplier = 50
+                stop_loss_pct = 1.0
+            else:
+                multiplier = 25
+                stop_loss_pct = 0.75
+            
+            # Direction based on strong signals only
+            if prediction['confidence'] > 0.75:
+                base_signal.direction = prediction['direction']
+                base_signal.confidence = prediction['confidence']
+            else:
+                return None  # Skip weak signals for leveraged trading
+            
+            # Calculate stop loss and take profit
+            if base_signal.direction == 'up':
+                base_signal.stop_loss = current_price * (1 - stop_loss_pct / 100)
+                base_signal.target_price = current_price * (1 + stop_loss_pct * 2 / 100)
+            else:
+                base_signal.stop_loss = current_price * (1 + stop_loss_pct / 100)
+                base_signal.target_price = current_price * (1 - stop_loss_pct * 2 / 100)
+            
+            base_signal.contract_specific_params = {
+                'multiplier': multiplier,
+                'stop_loss_pct': stop_loss_pct,
+                'take_profit_pct': stop_loss_pct * 2
+            }
+            
+            return base_signal
+            
+        except Exception as e:
+            logger.error(f"Multipliers ML strategy error: {str(e)}")
+            return base_signal
+    
+    def _accumulators_ml_strategy(self, market_data: Dict, base_signal: TradingSignal) -> TradingSignal:
+        """ML strategy for Accumulators"""
+        try:
+            features = self.extract_features(market_data, ContractType.ACCUMULATORS)
+            if features is None:
+                return base_signal
+            
+            current_price = market_data.get('current_price', 0)
+            volatility = market_data.get('volatility', 0.01)
+            
+            # Get ML prediction
+            prediction = self._get_ml_prediction(ContractType.ACCUMULATORS, features)
+            
+            # Accumulators work best in trending markets
+            if volatility < 0.015 and prediction['confidence'] > 0.7:
+                base_signal.direction = prediction['direction']
+                base_signal.confidence = prediction['confidence']
+                
+                # Growth rate based on volatility
+                growth_rate = 1.0 if volatility < 0.005 else 2.0 if volatility < 0.01 else 3.0
+                
+                # Barrier calculation
+                barrier_distance = current_price * (volatility * 3)
+                
+                if base_signal.direction == 'up':
+                    knock_out_barrier = current_price + barrier_distance
+                else:
+                    knock_out_barrier = current_price - barrier_distance
+                
+                base_signal.contract_specific_params = {
+                    'growth_rate': growth_rate,
+                    'knock_out_barrier': knock_out_barrier,
+                    'accumulation_period': 300
+                }
+            else:
+                return None  # Skip in high volatility
+            
+            return base_signal
+            
+        except Exception as e:
+            logger.error(f"Accumulators ML strategy error: {str(e)}")
+            return base_signal
+    
+    # Feature extraction methods for different contract types
+    
+    def _extract_rise_fall_features(self, market_data: Dict) -> np.ndarray:
+        """Extract features for Rise/Fall ML prediction"""
+        features = [
+            market_data.get('current_price', 1.0),
+            market_data.get('rsi', 50) / 100,
+            market_data.get('trend', 0),
+            market_data.get('volatility', 0.01) * 100,
+            market_data.get('momentum', 0) * 1000,
+            market_data.get('macd', {}).get('macd', 0) * 10000,
+            market_data.get('macd', {}).get('signal', 0) * 10000,
+            (market_data.get('current_price', 1.0) - market_data.get('sma_20', 1.0)) / market_data.get('current_price', 1.0),
+            market_data.get('volume', 1000) / 1000,
+            market_data.get('price_change_1m', 0) * 1000,
+            market_data.get('price_change_5m', 0) * 1000,
+            market_data.get('bollinger_position', 0.5)  # Position within Bollinger Bands
+        ]
+        return np.array(features).reshape(1, -1)
+    
+    def _extract_touch_no_touch_features(self, market_data: Dict) -> np.ndarray:
+        """Extract features for Touch/No Touch ML prediction"""
+        features = [
+            market_data.get('volatility', 0.01) * 100,
+            market_data.get('trend', 0),
+            market_data.get('rsi', 50) / 100,
+            abs(market_data.get('trend', 0)),  # Trend strength
+            market_data.get('atr', 0.001) * 1000,  # Average True Range
+            market_data.get('momentum', 0) * 1000,
+            market_data.get('price_velocity', 0) * 1000,  # Rate of price change
+            market_data.get('support_distance', 0.001) * 1000,
+            market_data.get('resistance_distance', 0.001) * 1000,
+            market_data.get('time_to_support', 300) / 300,
+            market_data.get('time_to_resistance', 300) / 300,
+            market_data.get('volatility_trend', 0)  # Is volatility increasing?
+        ]
+        return np.array(features).reshape(1, -1)
+    
+    def _extract_boundary_features(self, market_data: Dict) -> np.ndarray:
+        """Extract features for In/Out boundary ML prediction"""
+        features = [
+            market_data.get('volatility', 0.01) * 100,
+            market_data.get('rsi', 50) / 100,
+            (market_data.get('rsi', 50) - 50) / 50,  # RSI deviation from neutral
+            market_data.get('bollinger_width', 0.002) * 1000,
+            market_data.get('bollinger_position', 0.5),
+            market_data.get('trend', 0),
+            abs(market_data.get('trend', 0)),
+            market_data.get('momentum', 0) * 1000,
+            market_data.get('market_regime', 0),  # 0=ranging, 1=trending
+            market_data.get('price_reversals_1h', 0) / 10,
+            market_data.get('avg_candle_size', 0.001) * 1000,
+            market_data.get('breakout_probability', 0.5)
+        ]
+        return np.array(features).reshape(1, -1)
+    
+    def _extract_asian_features(self, market_data: Dict) -> np.ndarray:
+        """Extract features for Asian options ML prediction"""
+        features = [
+            market_data.get('volatility', 0.01) * 100,
+            market_data.get('trend', 0),
+            market_data.get('trend_consistency', 0.5),  # How consistent is the trend
+            market_data.get('mean_reversion_strength', 0.5),
+            market_data.get('price_drift', 0) * 1000,
+            market_data.get('volatility_of_volatility', 0.001) * 1000,
+            market_data.get('autocorrelation', 0.5),
+            market_data.get('hurst_exponent', 0.5),  # Trend persistence measure
+            market_data.get('market_microstructure', 0.5),
+            market_data.get('time_of_day_effect', 0.5),
+            market_data.get('regime_stability', 0.5),
+            market_data.get('expected_drift', 0) * 1000
+        ]
+        return np.array(features).reshape(1, -1)
+    
+    def _extract_digits_features(self, market_data: Dict) -> np.ndarray:
+        """Extract features for Digits ML prediction"""
+        current_price = market_data.get('current_price', 1.0)
+        current_digit = int((current_price * 100) % 10)
+        digit_history = market_data.get('digit_history', [0] * 20)
+        
+        # Calculate digit patterns
+        recent_digits = digit_history[-10:] if len(digit_history) >= 10 else digit_history
+        digit_frequency = self._analyze_digit_frequency(digit_history)
+        
+        features = [
+            current_digit / 10,
+            digit_frequency.get(current_digit, 0.1),
+            len(set(recent_digits)) / 10,  # Digit diversity
+            self._calculate_digit_entropy(recent_digits),
+            self._find_digit_patterns(recent_digits),
+            market_data.get('volatility', 0.01) * 100,
+            market_data.get('price_momentum', 0) * 1000,
+            market_data.get('tick_direction', 0),  # -1, 0, 1
+            market_data.get('time_since_last_digit', 5) / 10,
+            market_data.get('digit_autocorr', 0),
+            market_data.get('price_microtrend', 0) * 10000,
+            self._calculate_digit_run_length(recent_digits)
+        ]
+        return np.array(features).reshape(1, -1)
+    
+    def _extract_reset_features(self, market_data: Dict) -> np.ndarray:
+        """Extract features for Reset Call/Put ML prediction"""
+        features = [
+            market_data.get('volatility', 0.01) * 100,
+            market_data.get('trend', 0),
+            abs(market_data.get('trend', 0)),
+            market_data.get('momentum', 0) * 1000,
+            market_data.get('acceleration', 0) * 10000,
+            market_data.get('rsi', 50) / 100,
+            market_data.get('stochastic', 50) / 100,
+            market_data.get('williams_r', -50) / -100,
+            market_data.get('reset_probability', 0.3),  # Historical reset rate
+            market_data.get('barrier_breach_history', 0.5),
+            market_data.get('volatility_skew', 0),
+            market_data.get('time_decay_factor', 1.0)
+        ]
+        return np.array(features).reshape(1, -1)
+    
+    def _extract_tick_features(self, market_data: Dict) -> np.ndarray:
+        """Extract features for High/Low Ticks ML prediction"""
+        tick_history = market_data.get('tick_history', [])
+        if len(tick_history) < 5:
+            tick_history = [1.0] * 5
+        
+        features = [
+            np.max(tick_history[-5:]) - np.min(tick_history[-5:]),  # Tick range
+            np.std(tick_history[-5:]),  # Tick volatility
+            np.mean(np.diff(tick_history[-5:])),  # Average tick change
+            market_data.get('tick_momentum', 0) * 1000,
+            market_data.get('microtrend', 0) * 10000,
+            market_data.get('tick_acceleration', 0) * 10000,
+            market_data.get('bid_ask_spread', 0.001) * 1000,
+            market_data.get('order_flow_imbalance', 0),
+            market_data.get('market_impact', 0) * 1000,
+            market_data.get('liquidity_measure', 1.0),
+            market_data.get('volatility', 0.01) * 100,
+            market_data.get('jump_probability', 0.1)
+        ]
+        return np.array(features).reshape(1, -1)
+    
+    def _extract_directional_features(self, market_data: Dict) -> np.ndarray:
+        """Extract features for Only Ups/Downs ML prediction"""
+        features = [
+            market_data.get('trend', 0),
+            abs(market_data.get('trend', 0)),
+            market_data.get('trend_consistency', 0.5),
+            market_data.get('momentum', 0) * 1000,
+            market_data.get('acceleration', 0) * 10000,
+            market_data.get('volatility', 0.01) * 100,
+            market_data.get('directional_strength', 0.5),
+            market_data.get('reversal_probability', 0.3),
+            market_data.get('support_strength', 0.5),
+            market_data.get('resistance_strength', 0.5),
+            market_data.get('market_regime', 0.5),  # Trending vs ranging
+            market_data.get('persistence_factor', 0.5)
+        ]
+        return np.array(features).reshape(1, -1)
+    
+    def _extract_multiplier_features(self, market_data: Dict) -> np.ndarray:
+        """Extract features for Multipliers ML prediction"""
+        features = [
+            market_data.get('volatility', 0.01) * 100,
+            market_data.get('trend', 0),
+            abs(market_data.get('trend', 0)),
+            market_data.get('momentum', 0) * 1000,
+            market_data.get('rsi', 50) / 100,
+            market_data.get('risk_reward_ratio', 1.0),
+            market_data.get('stop_loss_distance', 0.01) * 100,
+            market_data.get('take_profit_distance', 0.01) * 100,
+            market_data.get('market_efficiency', 0.5),
+            market_data.get('leverage_factor', 10) / 100,
+            market_data.get('drawdown_risk', 0.1),
+            market_data.get('profit_potential', 0.1)
+        ]
+        return np.array(features).reshape(1, -1)
+    
+    def _extract_accumulator_features(self, market_data: Dict) -> np.ndarray:
+        """Extract features for Accumulators ML prediction"""
+        features = [
+            market_data.get('volatility', 0.01) * 100,
+            market_data.get('trend', 0),
+            abs(market_data.get('trend', 0)),
+            market_data.get('momentum', 0) * 1000,
+            market_data.get('rsi', 50) / 100,
+            market_data.get('growth_potential', 0.1),
+            market_data.get('knockout_risk', 0.3),
+            market_data.get('accumulation_rate', 1.0),
+            market_data.get('barrier_distance', 0.01) * 100,
+            market_data.get('time_factor', 0.5),
+            market_data.get('market_stability', 0.5),
+            market_data.get('profit_potential', 0.1)
+        ]
+        return np.array(features).reshape(1, -1)
+    
+    # Technical indicator calculations
+    def _calculate_rsi(self, prices: np.ndarray, period: int = 14) -> float:
+        """Calculate RSI indicator"""
+        try:
+            if len(prices) < period + 1:
+                return 50.0
+            
+            deltas = np.diff(prices)
+            gains = np.where(deltas > 0, deltas, 0)
+            losses = np.where(deltas < 0, -deltas, 0)
+            
+            avg_gain = np.mean(gains[-period:])
+            avg_loss = np.mean(losses[-period:])
+            
+            if avg_loss == 0:
+                return 100.0
+            
+            rs = avg_gain / avg_loss
+            rsi = 100 - (100 / (1 + rs))
+            
+            return rsi
+            
+        except Exception as e:
+            logger.error(f"Error calculating RSI: {str(e)}")
+            return 50.0
+    
+    def _calculate_macd(self, prices: np.ndarray, fast: int = 12, slow: int = 26, signal: int = 9) -> Tuple[float, float]:
+        """Calculate MACD indicator"""
+        try:
+            if len(prices) < slow:
+                return 0.0, 0.0
+            
+            # Simple moving averages (in production, use EMA)
+            fast_ma = np.mean(prices[-fast:])
+            slow_ma = np.mean(prices[-slow:])
+            
+            macd = fast_ma - slow_ma
+            
+            # Signal line (simplified)
+            if len(prices) >= slow + signal:
+                recent_macd = []
+                for i in range(signal):
+                    if len(prices) >= slow + i:
+                        f_ma = np.mean(prices[-(fast + i):len(prices) - i])
+                        s_ma = np.mean(prices[-(slow + i):len(prices) - i])
+                        recent_macd.append(f_ma - s_ma)
+                signal_line = np.mean(recent_macd) if recent_macd else macd
+            else:
+                signal_line = macd
+            
+            return macd, signal_line
+            
+        except Exception as e:
+            logger.error(f"Error calculating MACD: {str(e)}")
+            return 0.0, 0.0
+    
+    def _calculate_bollinger_bands(self, prices: np.ndarray, period: int = 20, std_dev: float = 2.0) -> Tuple[float, float, float]:
+        """Calculate Bollinger Bands"""
+        try:
+            if len(prices) < period:
+                current_price = prices[-1] if len(prices) > 0 else 0
+                return current_price * 1.01, current_price * 0.99, current_price
+            
+            middle = np.mean(prices[-period:])
+            std = np.std(prices[-period:])
+            
+            upper = middle + (std * std_dev)
+            lower = middle - (std * std_dev)
+            
+            return upper, lower, middle
+            
+        except Exception as e:
+            logger.error(f"Error calculating Bollinger Bands: {str(e)}")
+            current_price = prices[-1] if len(prices) > 0 else 0
+            return current_price * 1.01, current_price * 0.99, current_price
+    
+    # ML prediction methods
+    
+    def _get_ml_prediction(self, contract_type: ContractType, features: np.ndarray) -> Dict:
+        """Get ML prediction for given contract type and features"""
+        try:
+            if contract_type not in self.models or features is None:
+                return {'direction': 'up', 'confidence': 0.5, 'predicted_digit': 0}
+            
+            # Scale features
+            if hasattr(self.scalers[contract_type], 'transform'):
+                features_scaled = self.scalers[contract_type].transform(features.reshape(1, -1))
+            else:
+                features_scaled = features.reshape(1, -1)
+            
+            # Get predictions from all models
+            predictions = {}
+            confidences = {}
+            
+            for model_name, model in self.models[contract_type].items():
+                if hasattr(model, 'predict_proba'):
+                    try:
+                        proba = model.predict_proba(features_scaled)[0]
+                        if len(proba) >= 2:
+                            predictions[model_name] = 'up' if proba[1] > proba[0] else 'down'
+                            confidences[model_name] = max(proba)
+                        else:
+                            predictions[model_name] = 'up'
+                            confidences[model_name] = 0.5
+                    except:
+                        predictions[model_name] = 'up'
+                        confidences[model_name] = 0.5
+                else:
+                    predictions[model_name] = 'up'
+                    confidences[model_name] = 0.5
+            
+            if not predictions:
+                return {'direction': 'up', 'confidence': 0.5, 'predicted_digit': 0}
+            
+            # Ensemble prediction (weighted by model performance)
+            best_model = self.model_performance[contract_type].get('best_model', 'random_forest')
+            
+            if best_model in predictions:
+                final_direction = predictions[best_model]
+                final_confidence = confidences[best_model]
+            else:
+                # Majority vote
+                up_votes = sum(1 for pred in predictions.values() if pred == 'up')
+                down_votes = len(predictions) - up_votes
+                
+                final_direction = 'up' if up_votes > down_votes else 'down'
+                final_confidence = np.mean(list(confidences.values()))
+            
+            # For digits, predict specific digit
+            predicted_digit = 0
+            if contract_type == ContractType.DIGITS:
+                # Simple prediction based on price momentum
+                current_trend = features[-5] if len(features) > 5 else 0
+                predicted_digit = min(9, max(0, int(5 + current_trend * 10)))
+            
+            return {
+                'direction': final_direction,
+                'confidence': final_confidence,
+                'predicted_digit': predicted_digit
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting ML prediction: {str(e)}")
+            return {'direction': 'up', 'confidence': 0.5, 'predicted_digit': 0}
     
     def train_models(self, contract_type: ContractType = None, force_retrain: bool = False):
         """Train ML models for specified contract type or all types"""
