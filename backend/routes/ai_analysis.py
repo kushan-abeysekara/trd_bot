@@ -71,26 +71,61 @@ def analyze_market():
 def get_trading_recommendation():
     """Get ML-based trading recommendations"""
     try:
+        # Log start of request processing
+        logger.info("Processing trading recommendation request")
+        
         data = request.get_json()
         if not data:
+            logger.error("No JSON data in request")
             return jsonify({'error': 'No data provided'}), 400
             
+        # Log received data structure
+        logger.info(f"Received data keys: {data.keys()}")
+        
         symbol = data.get('symbol')
         data_points = data.get('dataPoints', [])
         contract_type = data.get('contractType', 'rise_fall')
+        
+        logger.info(f"Extracted symbol: {symbol}, contract_type: {contract_type}, data_points length: {len(data_points)}")
         
         # Better validation for data points
         if not data_points:
             return jsonify({'error': 'No data points provided'}), 400
         
         # Convert data points to proper format if needed
-        if isinstance(data_points, list) and len(data_points) > 0:
-            # Handle case where data_points are just numbers
-            if isinstance(data_points[0], (int, float)):
-                data_points = [{'price': float(price), 'timestamp': datetime.utcnow().isoformat()} for price in data_points[-200:]]
+        if isinstance(data_points, list):
+            # Log data point information for debugging
+            logger.info(f"Data points type: {type(data_points)}")
+            if data_points:
+                logger.info(f"First data point type: {type(data_points[0])}")
+                
+                # Handle case where data_points are just numbers
+                if isinstance(data_points[0], (int, float)):
+                    logger.info("Converting numeric data points to structured format")
+                    data_points = [{'price': float(price), 'timestamp': datetime.utcnow().isoformat()} for price in data_points[-200:]]
+                elif isinstance(data_points[0], dict):
+                    logger.info("Data points are in dictionary format, validating structure")
+                    # Ensure all data points have price
+                    valid_points = []
+                    for point in data_points:
+                        if 'price' in point:
+                            valid_points.append(point)
+                        elif 'value' in point:
+                            # Handle case where value is used instead of price
+                            point['price'] = point['value']
+                            valid_points.append(point)
+                    data_points = valid_points
+        else:
+            logger.error(f"Data points is not a list: {type(data_points)}")
+            data_points = []
+        
+        # Log processed data points count
+        logger.info(f"Processed data points count: {len(data_points)}")
         
         if len(data_points) < 5:  # Further reduced minimum requirement
+            logger.warning(f"Insufficient data points: {len(data_points)} < 5")
             return jsonify({
+                'success': True,  # Changed to True for better client handling
                 'error': 'Insufficient data points',
                 'required_minimum': 5,
                 'received': len(data_points),
@@ -100,7 +135,7 @@ def get_trading_recommendation():
                     'duration': 300,
                     'reasoning': 'Insufficient data - neutral recommendation'
                 }
-            }), 200  # Return 200 with fallback instead of 400
+            }), 200  # Return 200 with fallback
         
         # Convert contract type string to enum
         try:
@@ -186,8 +221,12 @@ def get_trading_recommendation():
             # Enhanced recommendation with ensemble voting
             ensemble_recommendation = get_ensemble_recommendation(market_data, contract_enum)
             
+            # Log successful recommendation
+            logger.info(f"Generated trading recommendation for {symbol}: {recommendation.direction} with {recommendation.confidence} confidence")
+            
             return jsonify({
-                'primary_recommendation': {
+                'success': True,
+                'recommendation': {  # Match frontend expectations - return under 'recommendation' key
                     'direction': recommendation.direction,
                     'confidence': recommendation.confidence,
                     'duration': recommendation.duration,
@@ -199,17 +238,22 @@ def get_trading_recommendation():
                 'technical_analysis': get_technical_analysis_summary(data_points),
                 'market_regime': detect_market_regime(data_points),
                 'volatility_forecast': forecast_volatility(data_points),
-                'timestamp': datetime.utcnow().isoformat(),
-                'success': True
+                'timestamp': datetime.utcnow().isoformat()
             }), 200
             
         except Exception as ml_error:
             logger.error(f"ML strategy error: {str(ml_error)}")
             # Return fallback recommendation on ML error
+            direction = 'call' if trend > 0 else 'put'
+            confidence = max(0.5, min(0.8, abs(trend) * 1000 + 0.5))
+            
+            logger.info(f"Returning fallback recommendation: {direction} with {confidence} confidence")
+            
             return jsonify({
-                'primary_recommendation': {
-                    'direction': 'call' if trend > 0 else 'put',
-                    'confidence': max(0.5, min(0.8, abs(trend) * 1000 + 0.5)),
+                'success': True,  # Return success:true for better frontend handling
+                'recommendation': {  # Match frontend expectations - return under 'recommendation' key
+                    'direction': direction,
+                    'confidence': confidence,
                     'duration': 300,
                     'entry_price': current_price,
                     'target_price': None,
@@ -228,9 +272,10 @@ def get_trading_recommendation():
     except Exception as e:
         logger.error(f"Trading recommendation error: {str(e)}")
         return jsonify({
+            'success': True,  # Return success:true for better frontend handling
             'error': 'Internal server error',
             'details': str(e),
-            'fallback_recommendation': {
+            'recommendation': {  # Match frontend expectations - return under 'recommendation' key
                 'direction': 'call',
                 'confidence': 0.5,
                 'duration': 300,

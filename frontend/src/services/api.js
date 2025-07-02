@@ -82,7 +82,31 @@ export const tradingAPI = {
   getRecentActivity: (accountType) => api.get(`/trading/activity${accountType ? `?account_type=${accountType}` : ''}`),
   // Add new AI analysis endpoints
   analyzeMarket: (data) => api.post('/ai/analyze-market', data),
-  getTradingRecommendation: (symbol, dataPoints) => api.post('/ai/trading-recommendation', { symbol, dataPoints }),
+  getTradingRecommendation: (symbol, dataPoints) => {
+    // Add better validation and debugging
+    console.log(`Trading recommendation API call for ${symbol} with ${dataPoints?.length || 0} data points`);
+    
+    // Ensure data points are properly formatted
+    const formattedDataPoints = dataPoints && Array.isArray(dataPoints) 
+      ? dataPoints.map(point => {
+          if (typeof point === 'number') {
+            return { price: point, timestamp: new Date().toISOString() };
+          } else if (typeof point === 'object') {
+            return {
+              price: point.price || point.value || 0,
+              timestamp: point.timestamp || new Date().toISOString()
+            };
+          }
+          return { price: 0, timestamp: new Date().toISOString() };
+        })
+      : [];
+      
+    return api.post('/ai/trading-recommendation', { 
+      symbol, 
+      dataPoints: formattedDataPoints, 
+      contractType: 'rise_fall' // Default contract type
+    });
+  },
   getMarketPrediction: (data) => api.post('/ai/market-prediction', data),
   // Add new volatility charts endpoints
   getVolatilityData: (symbol, timeframe = '1m', limit = 100) => api.get(`/volatility/data?symbol=${symbol}&timeframe=${timeframe}&limit=${limit}`),

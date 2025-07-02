@@ -92,8 +92,15 @@ def get_trading_recommendation():
             'current_time': datetime.utcnow()
         }
         
-        # Get ML recommendation using strategy manager
-        recommendation = ml_strategy_manager.get_trading_signal(market_data, contract_enum)
+        # Get ML recommendation using strategy manager (fix parameter order)
+        recommendation = ml_strategy_manager.get_trading_signal(contract_enum, TradingMode.MODE_A, market_data)
+        
+        # Handle case where recommendation is None
+        if not recommendation:
+            return jsonify({
+                'error': 'Unable to generate trading recommendation',
+                'details': 'ML strategy returned no signal'
+            }), 400
         
         # Enhanced recommendation with ensemble voting
         ensemble_recommendation = get_ensemble_recommendation(market_data, contract_enum)
@@ -491,48 +498,172 @@ def generate_technical_signals(analysis_data):
     
     return signals
 
-def get_ensemble_recommendation(market_data, contract_type):
-    """Get ensemble recommendation from multiple models"""
-    # Placeholder for ensemble logic
-    return {
-        'direction': 'call',
-        'confidence': 0.78,
-        'consensus': 'strong_bullish'
-    }
+def get_ensemble_recommendation(market_data: dict, contract_type: ContractType) -> dict:
+    """Get ensemble recommendation combining multiple ML models"""
+    try:
+        price_history = market_data.get('price_history', [])
+        if len(price_history) < 20:
+            return {
+                'direction': 'hold',
+                'confidence': 0.5,
+                'reasoning': 'Insufficient data for ensemble analysis'
+            }
+        
+        prices = [p.get('price', p) if isinstance(p, dict) else p for p in price_history[-50:]]
+        
+        # Simple technical analysis for ensemble
+        recent_trend = (prices[-1] - prices[-10]) / prices[-10] if len(prices) >= 10 else 0
+        volatility = np.std(np.diff(prices)) / np.mean(prices) if len(prices) > 1 else 0
+        
+        # Determine direction based on trend and volatility
+        if recent_trend > 0.001:
+            direction = 'call' if contract_type == ContractType.RISE_FALL else 'up'
+            confidence = min(0.8, 0.5 + abs(recent_trend) * 10)
+        elif recent_trend < -0.001:
+            direction = 'put' if contract_type == ContractType.RISE_FALL else 'down'
+            confidence = min(0.8, 0.5 + abs(recent_trend) * 10)
+        else:
+            direction = 'hold'
+            confidence = 0.5
+        
+        return {
+            'direction': direction,
+            'confidence': confidence,
+            'volatility': volatility,
+            'trend_strength': abs(recent_trend),
+            'reasoning': f'Ensemble analysis shows {direction} bias with {confidence:.1%} confidence'
+        }
+        
+    except Exception as e:
+        logger.error(f"Ensemble recommendation error: {str(e)}")
+        return {
+            'direction': 'hold',
+            'confidence': 0.5,
+            'reasoning': 'Error in ensemble analysis'
+        }
 
-def get_technical_analysis_summary(data_points):
-    """Get technical analysis summary"""
-    prices = [point['price'] for point in data_points[-50:]]
-    
-    return {
-        'trend': 'bullish' if prices[-1] > prices[-10] else 'bearish',
-        'momentum': 'strong',
-        'support_level': min(prices[-20:]),
-        'resistance_level': max(prices[-20:])
-    }
+def get_technical_analysis_summary(data_points: list) -> dict:
+    """Generate technical analysis summary"""
+    try:
+        if len(data_points) < 20:
+            return {'error': 'Insufficient data for technical analysis'}
+        
+        prices = [p.get('price', p) if isinstance(p, dict) else p for p in data_points[-50:]]
+        
+        # Calculate basic indicators
+        sma_20 = np.mean(prices[-20:]) if len(prices) >= 20 else prices[-1]
+        current_price = prices[-1]
+        
+        # RSI calculation (simplified)
+        price_changes = np.diff(prices)
+        gains = np.where(price_changes > 0, price_changes, 0)
+        losses = np.where(price_changes < 0, -price_changes, 0)
+        
+        avg_gain = np.mean(gains[-14:]) if len(gains) >= 14 else np.mean(gains)
+        avg_loss = np.mean(losses[-14:]) if len(losses) >= 14 else np.mean(losses)
+        
+        rs = avg_gain / avg_loss if avg_loss > 0 else 100
+        rsi = 100 - (100 / (1 + rs))
+        
+        # Bollinger Bands
+        sma = np.mean(prices[-20:]) if len(prices) >= 20 else current_price
+        std = np.std(prices[-20:]) if len(prices) >= 20 else 0
+        bb_upper = sma + (2 * std)
+        bb_lower = sma - (2 * std)
+        
+        return {
+            'current_price': current_price,
+            'sma_20': sma_20,
+            'rsi': rsi,
+            'bollinger_bands': {
+                'upper': bb_upper,
+                'middle': sma,
+                'lower': bb_lower,
+                'position': (current_price - bb_lower) / (bb_upper - bb_lower) if bb_upper != bb_lower else 0.5
+            },
+            'trend': 'bullish' if current_price > sma_20 else 'bearish',
+            'momentum': 'overbought' if rsi > 70 else 'oversold' if rsi < 30 else 'neutral'
+        }
+        
+    except Exception as e:
+        logger.error(f"Technical analysis error: {str(e)}")
+        return {'error': 'Technical analysis failed'}
 
-def detect_market_regime(data_points):
+def detect_market_regime(data_points: list) -> dict:
     """Detect current market regime"""
-    prices = [point['price'] for point in data_points[-100:]]
-    volatility = np.std(np.diff(prices)) if len(prices) > 1 else 0
-    
-    if volatility > 2.0:
-        return 'high_volatility'
-    elif volatility < 0.5:
-        return 'low_volatility'
-    else:
-        return 'medium_volatility'
+    try:
+        if len(data_points) < 30:
+            return {'regime': 'unknown', 'confidence': 0.5}
+        
+        prices = [p.get('price', p) if isinstance(p, dict) else p for p in data_points[-30:]]
+        returns = np.diff(prices) / np.array(prices[:-1])
+        
+        volatility = np.std(returns)
+        mean_return = np.mean(returns)
+        
+        # Classify regime based on volatility and trend
+        if volatility > 0.02:
+            regime = 'high_volatility'
+        elif volatility < 0.005:
+            regime = 'low_volatility'
+        elif mean_return > 0.001:
+            regime = 'trending_up'
+        elif mean_return < -0.001:
+            regime = 'trending_down'
+        else:
+            regime = 'sideways'
+        
+        # Calculate confidence based on how clear the regime is
+        confidence = min(0.9, 0.5 + (volatility * 25))
+        
+        return {
+            'regime': regime,
+            'confidence': confidence,
+            'volatility': volatility,
+            'mean_return': mean_return
+        }
+        
+    except Exception as e:
+        logger.error(f"Market regime detection error: {str(e)}")
+        return {'regime': 'unknown', 'confidence': 0.5}
 
-def forecast_volatility(data_points):
-    """Forecast future volatility"""
-    prices = [point['price'] for point in data_points[-50:]]
-    returns = np.diff(prices) / prices[:-1] if len(prices) > 1 else [0]
-    
-    return {
-        'current_volatility': np.std(returns) * 100,
-        'forecasted_volatility': np.std(returns[-10:]) * 100 if len(returns) >= 10 else 0,
-        'volatility_trend': 'increasing'  # Placeholder
-    }
+def forecast_volatility(data_points: list) -> dict:
+    """Forecast short-term volatility"""
+    try:
+        if len(data_points) < 20:
+            return {'forecast': 'unknown', 'confidence': 0.5}
+        
+        prices = [p.get('price', p) if isinstance(p, dict) else p for p in data_points[-20:]]
+        returns = np.diff(prices) / np.array(prices[:-1])
+        
+        # Simple EWMA volatility forecast
+        current_vol = np.std(returns)
+        recent_vol = np.std(returns[-10:]) if len(returns) >= 10 else current_vol
+        
+        # Forecast direction
+        if recent_vol > current_vol * 1.2:
+            forecast = 'increasing'
+        elif recent_vol < current_vol * 0.8:
+            forecast = 'decreasing'
+        else:
+            forecast = 'stable'
+        
+        confidence = min(0.8, 0.5 + abs(recent_vol - current_vol) * 50)
+        
+        return {
+            'forecast': forecast,
+            'current_volatility': current_vol,
+            'recent_volatility': recent_vol,
+            'confidence': confidence,
+            'expected_range': {
+                'high': prices[-1] * (1 + recent_vol),
+                'low': prices[-1] * (1 - recent_vol)
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Volatility forecast error: {str(e)}")
+        return {'forecast': 'unknown', 'confidence': 0.5}
 
 # Helper functions for pattern detection
 def find_peaks(prices):

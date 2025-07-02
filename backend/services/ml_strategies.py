@@ -306,10 +306,27 @@ class MLStrategyManager:
     def _ma_rsi_trend_strategy(self, market_data: Dict) -> Optional[TradingSignal]:
         """Moving Average + RSI Trend following strategy"""
         try:
-            current_price = market_data.get('current_price', 0)
-            rsi = market_data.get('rsi', 50)
-            trend = market_data.get('trend', 0)
-            volatility = market_data.get('volatility', 0.01)
+            price_history = market_data.get('price_history', [])
+            if len(price_history) < 20:
+                return None
+                
+            prices = np.array([p.get('price', p) if isinstance(p, dict) else p for p in price_history[-50:]])
+            current_price = prices[-1]
+            
+            # Calculate RSI
+            rsi = self._calculate_rsi(prices)
+            
+            # Calculate moving averages
+            if len(prices) >= 20:
+                sma_20 = np.mean(prices[-20:])
+                sma_50 = np.mean(prices[-50:]) if len(prices) >= 50 else sma_20
+                trend = (sma_20 - sma_50) / sma_50 if sma_50 > 0 else 0
+            else:
+                return None
+            
+            # Calculate volatility
+            returns = np.diff(prices) / prices[:-1]
+            volatility = np.std(returns) if len(returns) > 0 else 0.01
             
             # MA crossover signal
             ma_signal = 'up' if trend > 0.001 else 'down' if trend < -0.001 else 'neutral'
@@ -1012,16 +1029,16 @@ class MLStrategyManager:
         features = [
             market_data.get('volatility', 0.01) * 100,
             market_data.get('trend', 0),
-            market_data.get('trend_persistence', 0.5),
-            market_data.get('volatility_clustering', 0.5),
-            market_data.get('mean_reversion', 0.5),
-            market_data.get('jump_risk', 0.1),
-            market_data.get('barrier_proximity', 0.5),
-            market_data.get('accumulation_rate', 0.01) * 100,
-            market_data.get('time_decay', 1.0),
-            market_data.get('knock_out_probability', 0.2),
-            market_data.get('optimal_holding_time', 600) / 600,
-            market_data.get('compound_growth_potential', 0.1)
+            abs(market_data.get('trend', 0)),
+            market_data.get('momentum', 0) * 1000,
+            market_data.get('rsi', 50) / 100,
+            market_data.get('growth_potential', 0.1),
+            market_data.get('knockout_risk', 0.3),
+            market_data.get('accumulation_rate', 1.0),
+            market_data.get('barrier_distance', 0.01) * 100,
+            market_data.get('time_factor', 0.5),
+            market_data.get('market_stability', 0.5),
+            market_data.get('profit_potential', 0.1)
         ]
         return np.array(features).reshape(1, -1)
     
@@ -1538,3 +1555,107 @@ class MLStrategyManager:
                 'confidence_adjustment': 1.0,
                 'ai_status': 'error'
             }
+    
+    def _combine_signals(self, base_signal: TradingSignal, ml_enhanced_signal: TradingSignal, chatgpt_analysis: Dict) -> TradingSignal:
+        """Combine base signal, ML enhanced signal, and ChatGPT analysis"""
+        try:
+            if not base_signal:
+                return None
+            
+            # Start with ML enhanced signal
+            final_signal = ml_enhanced_signal if ml_enhanced_signal else base_signal
+            
+            # Apply ChatGPT confidence adjustment
+            if chatgpt_analysis and 'confidence_adjustment' in chatgpt_analysis:
+                adjustment = chatgpt_analysis['confidence_adjustment']
+                final_signal.confidence = min(0.95, final_signal.confidence * adjustment)
+            
+            # Add analysis to contract parameters
+            if not final_signal.contract_specific_params:
+                final_signal.contract_specific_params = {}
+            
+            final_signal.contract_specific_params['analysis'] = chatgpt_analysis.get('analysis', 'No additional analysis')
+            final_signal.contract_specific_params['ai_status'] = chatgpt_analysis.get('ai_status', 'unknown')
+            
+            return final_signal
+            
+        except Exception as e:
+            logger.error(f"Error combining signals: {str(e)}")
+            return base_signal
+
+    # Helper methods for feature analysis
+    def _analyze_digit_frequency(self, digit_history: List[int]) -> Dict[int, float]:
+        """Analyze frequency of digits in history"""
+        if not digit_history:
+            return {i: 0.1 for i in range(10)}
+        
+        total = len(digit_history)
+        frequency = {}
+        
+        for digit in range(10):
+            count = digit_history.count(digit)
+            frequency[digit] = count / total if total > 0 else 0.1
+        
+        return frequency
+    
+    def _calculate_digit_entropy(self, recent_digits: List[int]) -> float:
+        """Calculate entropy of digit distribution"""
+        if not recent_digits:
+            return 0.5
+        
+        # Count occurrences
+        counts = {}
+        for digit in recent_digits:
+            counts[digit] = counts.get(digit, 0) + 1
+        
+        # Calculate entropy
+        total = len(recent_digits)
+        entropy = 0
+        
+        for count in counts.values():
+            p = count / total
+            if p > 0:
+                entropy -= p * np.log2(p)
+        
+        # Normalize to 0-1 range
+        max_entropy = np.log2(10)  # Maximum entropy for 10 digits
+        return entropy / max_entropy if max_entropy > 0 else 0.5
+    
+    def _find_digit_patterns(self, recent_digits: List[int]) -> float:
+        """Find repeating patterns in digits"""
+        if len(recent_digits) < 4:
+            return 0.5
+        
+        pattern_score = 0
+        
+        # Look for consecutive patterns
+        for i in range(len(recent_digits) - 1):
+            if recent_digits[i] == recent_digits[i + 1]:
+                pattern_score += 0.1
+        
+        # Look for alternating patterns
+        for i in range(len(recent_digits) - 2):
+            if recent_digits[i] == recent_digits[i + 2]:
+                pattern_score += 0.05
+        
+        return min(1.0, pattern_score)
+    
+    def _calculate_digit_run_length(self, recent_digits: List[int]) -> float:
+        """Calculate average run length of consecutive digits"""
+        if len(recent_digits) < 2:
+            return 0.1
+        
+        runs = []
+        current_run = 1
+        
+        for i in range(1, len(recent_digits)):
+            if recent_digits[i] == recent_digits[i - 1]:
+                current_run += 1
+            else:
+                runs.append(current_run)
+                current_run = 1
+        
+        runs.append(current_run)
+        
+        avg_run_length = np.mean(runs) if runs else 1
+        return min(1.0, avg_run_length / 5)  # Normalize to 0-1

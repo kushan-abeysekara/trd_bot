@@ -89,15 +89,29 @@ const AIMarketAnalyzer = ({ chartData, currentPrice, selectedIndex }) => {
   // Generate recommendation from backend analysis
   const generateRecommendationFromBackend = async (analysis) => {
     try {
-      const response = await tradingAPI.getTradingRecommendation({
-        symbol: selectedIndex,
-        analysis: analysis
-      });
+      console.log("Requesting trading recommendation for:", selectedIndex);
       
-      if (response.success) {
+      // Prepare data points with proper format
+      const formattedDataPoints = chartData.slice(-300).map(point => ({
+        price: point.price || point.value || point,
+        timestamp: point.timestamp || new Date().toISOString()
+      }));
+      
+      console.log(`Sending ${formattedDataPoints.length} data points to API`);
+      
+      const response = await tradingAPI.getTradingRecommendation(
+        selectedIndex,
+        formattedDataPoints
+      );
+      
+      if (response && response.success) {
+        console.log("Received trading recommendation:", response.recommendation);
         return response.recommendation;
+      } else {
+        console.warn("Invalid recommendation response:", response);
       }
     } catch (error) {
+      console.error("Error getting trading recommendation:", error?.response?.data || error?.message || error);
       console.error('Recommendation error:', error);
     }
     
