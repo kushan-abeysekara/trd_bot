@@ -80,51 +80,9 @@ export const tradingAPI = {
   switchAccount: (accountType) => api.post('/deriv/switch-account', { account_type: accountType }),
   getStats: (accountType) => api.get(`/trading/stats${accountType ? `?account_type=${accountType}` : ''}`),
   getRecentActivity: (accountType) => api.get(`/trading/activity${accountType ? `?account_type=${accountType}` : ''}`),
-  
-  // Add new API endpoints for proper balance handling
-  getUserProfile: () => api.get('/auth/profile'),
-  updateUserProfile: (data) => api.put('/auth/profile', data),
-  
-  // Enhanced balance endpoint with better error handling
-  getBalanceWithRetry: async (accountType, maxRetries = 3) => {
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        const response = await api.get(`/deriv/balance${accountType ? `?account_type=${accountType}` : ''}`);
-        return response;
-      } catch (error) {
-        console.error(`Balance fetch attempt ${attempt} failed:`, error);
-        if (attempt === maxRetries) {
-          throw error;
-        }
-        // Wait before retrying
-        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
-      }
-    }
-  }
-};
-
-// AI Analysis API endpoints
-export const aiAPI = {
-  getTradingRecommendation: (symbol, dataPoints = []) => {
-    // Format data points for API
-    const formattedDataPoints = Array.isArray(dataPoints) && dataPoints.length > 0
-      ? dataPoints.map(point => {
-          if (typeof point === 'object' && point !== null) {
-            return {
-              price: point.price || point.value || 0,
-              timestamp: point.timestamp || new Date().toISOString()
-            };
-          }
-          return { price: 0, timestamp: new Date().toISOString() };
-        })
-      : [];
-      
-    return api.post('/ai/trading-recommendation', { 
-      symbol, 
-      dataPoints: formattedDataPoints, 
-      contractType: 'rise_fall' // Default contract type
-    });
-  },
+  // Add new AI analysis endpoints
+  analyzeMarket: (data) => api.post('/ai/analyze-market', data),
+  getTradingRecommendation: (symbol, dataPoints) => api.post('/ai/trading-recommendation', { symbol, dataPoints }),
   getMarketPrediction: (data) => api.post('/ai/market-prediction', data),
   // Add new volatility charts endpoints
   getVolatilityData: (symbol, timeframe = '1m', limit = 100) => api.get(`/volatility/data?symbol=${symbol}&timeframe=${timeframe}&limit=${limit}`),
@@ -143,207 +101,39 @@ export const aiAPI = {
   getRealTimeMarketCondition: (symbol) => api.get(`/ai/market-condition?symbol=${symbol}`),
   getAdvancedTechnicalIndicators: (data) => api.post('/ai/technical-indicators', data),
   // Market Analysis endpoints
-  analyzeMarketAdvanced: async (data) => {
-    try {
-      const response = await api.post('/market-analysis/analyze', data);
-      return response.data;
-    } catch (error) {
-      console.error('Market analysis error:', error);
-      return { error: 'Analysis failed', fallback: true };
-    }
+  analyzeMarket: async (data) => {
+    const response = await api.post('/market-analysis/analyze', data);
+    return response.data;
   },
   
   analyzeMarketRealTime: async (symbol, data) => {
-    try {
-      const response = await api.post(`/market-analysis/real-time/${symbol}`, data);
-      return response.data;
-    } catch (error) {
-      console.error('Real-time analysis error:', error);
-      return { error: 'Real-time analysis failed', fallback: true };
-    }
+    const response = await api.post(`/market-analysis/real-time/${symbol}`, data);
+    return response.data;
   },
   
-  getTradingRecommendationAdvanced: async (data) => {
-    try {
-      const response = await api.post('/market-analysis/trading-recommendation', data);
-      return response.data;
-    } catch (error) {
-      console.error('Trading recommendation error:', error);
-      return { 
-        error: 'Recommendation failed', 
-        fallback: true,
-        recommendation: {
-          contract_type: 'rise_fall',
-          direction: 'call',
-          confidence: 50,
-          risk_level: 'medium',
-          duration: '5 minutes',
-          reasoning: 'Fallback recommendation due to error'
-        }
-      };
-    }
+  getTradingRecommendation: async (data) => {
+    const response = await api.post('/market-analysis/trading-recommendation', data);
+    return response.data;
   },
   
   getDigitAnalysis: async () => {
-    try {
-      const response = await api.get('/market-analysis/digit-analysis');
-      return response.data;
-    } catch (error) {
-      console.error('Digit analysis error:', error);
-      return { error: 'Digit analysis failed', fallback: true };
-    }
+    const response = await api.get('/market-analysis/digit-analysis');
+    return response.data;
   },
   
   getChatGPTAnalysis: async () => {
-    try {
-      const response = await api.get('/market-analysis/chatgpt-analysis');
-      return response.data;
-    } catch (error) {
-      console.error('ChatGPT analysis error:', error);
-      return { error: 'ChatGPT analysis failed', fallback: true };
-    }
+    const response = await api.get('/market-analysis/chatgpt-analysis');
+    return response.data;
   },
   
   getPredictions: async () => {
-    try {
-      const response = await api.get('/market-analysis/predictions');
-      return response.data;
-    } catch (error) {
-      console.error('Predictions error:', error);
-      return { error: 'Predictions failed', fallback: true };
-    }
+    const response = await api.get('/market-analysis/predictions');
+    return response.data;
   },
   
   getAnalysisStatus: async () => {
-    try {
-      const response = await api.get('/market-analysis/status');
-      return response.data;
-    } catch (error) {
-      console.error('Analysis status error:', error);
-      return { status: 'error', fallback: true };
-    }
-  },
-  
-  // Trading Bot API endpoints with better error handling
-  startTradingBot: async (data) => {
-    try {
-      const response = await api.post('/trading-bot/start', data);
-      return response.data;
-    } catch (error) {
-      console.error('Start trading bot error:', error);
-      throw error;
-    }
-  },
-  
-  stopTradingBot: async () => {
-    try {
-      const response = await api.post('/trading-bot/stop');
-      return response.data;
-    } catch (error) {
-      console.error('Stop trading bot error:', error);
-      throw error;
-    }
-  },
-  getBotStatus: () => api.get('/trading-bot/status'),
-  getBotSettings: () => api.get('/trading-bot/settings'),
-  updateBotSettings: (data) => api.put('/trading-bot/settings', data),
-  getTradingHistory: (params) => api.get('/trading-bot/history', { params }),
-  getTradingSessions: (params) => api.get('/trading-bot/sessions', { params }),
-  getPerformanceAnalytics: () => api.get('/trading-bot/performance'),
-  retrainMlModels: () => api.post('/trading-bot/ml-models/retrain'),
-  getMlModelPerformance: () => api.get('/trading-bot/ml-models/performance'),
-  testTradingSignal: (data) => api.post('/trading-bot/test-signal', data),
-  getBotConfigurations: () => api.get('/trading-bot/bot-configs'),
-
-  // Technical Trading Bot API endpoints
-  startTechnicalBot: async (data) => {
-    try {
-      const response = await api.post('/technical-bot/start', data);
-      return response.data;
-    } catch (error) {
-      console.error('Start technical bot error:', error);
-      throw error;
-    }
-  },
-  
-  stopTechnicalBot: async () => {
-    try {
-      const response = await api.post('/technical-bot/stop');
-      return response.data;
-    } catch (error) {
-      console.error('Stop technical bot error:', error);
-      throw error;
-    }
-  },
-  
-  getTechnicalBotStatus: async () => {
-    try {
-      const response = await api.get('/technical-bot/status');
-      return response.data;
-    } catch (error) {
-      console.error('Get technical bot status error:', error);
-      throw error;
-    }
-  },
-  
-  updateTechnicalBotSettings: async (data) => {
-    try {
-      const response = await api.put('/technical-bot/update-settings', data);
-      return response.data;
-    } catch (error) {
-      console.error('Update technical bot settings error:', error);
-      throw error;
-    }
-  },
-  
-  getTechnicalTradingHistory: async (params) => {
-    try {
-      const response = await api.get('/technical-bot/trade-history', { params });
-      return response.data;
-    } catch (error) {
-      console.error('Get technical trading history error:', error);
-      throw error;
-    }
-  },
-  
-  changeTechnicalBotStrategy: async (data) => {
-    try {
-      const response = await api.post('/technical-bot/strategy', data);
-      return response.data;
-    } catch (error) {
-      console.error('Change technical bot strategy error:', error);
-      throw error;
-    }
-  },
-  
-  getTechnicalBotPerformance: async () => {
-    try {
-      const response = await api.get('/technical-bot/performance');
-      return response.data;
-    } catch (error) {
-      console.error('Get technical bot performance error:', error);
-      throw error;
-    }
-  },
-
-  getTechnicalBotSessions: async (params) => {
-    try {
-      const response = await api.get('/technical-bot/sessions', { params });
-      return response.data;
-    } catch (error) {
-      console.error('Get technical bot sessions error:', error);
-      throw error;
-    }
-  },
-  
-  getTechnicalBotStrategies: async () => {
-    try {
-      const response = await api.get('/technical-bot/strategies');
-      return response.data;
-    } catch (error) {
-      console.error('Get technical bot strategies error:', error);
-      throw error;
-    }
+    const response = await api.get('/market-analysis/status');
+    return response.data;
   }
 };
 

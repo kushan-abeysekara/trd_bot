@@ -22,7 +22,7 @@ def register():
         required_fields = ['first_name', 'last_name', 'password']
         for field in required_fields:
             if not data.get(field):
-                return jsonify({'error': f'{field.replace("_", " ").title()} is required', 'code': f'MISSING_{field.upper()}'}), 400
+                return jsonify({'error': f'{field} is required'}), 400
         
         # Check if email or mobile is provided
         email = data.get('email')

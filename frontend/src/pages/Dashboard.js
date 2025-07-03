@@ -23,8 +23,6 @@ import ApiTokenSetup from '../components/ApiTokenSetup';
 import VolatilityChart from '../components/VolatilityChart';
 import LastDigitDisplay from '../components/LastDigitDisplay';
 import AIMarketAnalyzer from '../components/AIMarketAnalyzer';
-import AITradingBot from '../components/AITradingBot';
-import TechnicalTradingBot from '../components/TechnicalTradingBot';
 import toast from 'react-hot-toast';
 
 const Dashboard = () => {
@@ -56,61 +54,17 @@ const Dashboard = () => {
   const hasCurrentAccountToken = currentAccountType === 'demo' ? hasDemoToken : hasRealToken;
 
   const fetchBalance = useCallback(async () => {
-    if (!hasCurrentAccountToken) {
-      setAccountBalance(null);
-      setBalanceError('No API token configured for this account type');
-      return;
-    }
+    if (!hasCurrentAccountToken) return;
     
     setIsLoadingBalance(true);
     setBalanceError(null);
     
     try {
-      console.log(`Fetching balance for ${currentAccountType} account...`);
-      
-      // Use the enhanced balance API with retry logic
-      const response = await tradingAPI.getBalanceWithRetry(currentAccountType);
-      
-      console.log('Balance response:', response.data);
-      
-      if (response.data && response.data.success !== false) {
-        setAccountBalance({
-          balance: response.data.balance,
-          currency: response.data.currency,
-          account_id: response.data.account_id,
-          account_type: response.data.account_type,
-          last_updated: response.data.last_updated
-        });
-        setBalanceError(null);
-      } else {
-        const errorMessage = response.data?.error || 'Failed to fetch balance';
-        setBalanceError(errorMessage);
-        setAccountBalance(null);
-      }
+      const response = await tradingAPI.getBalance(currentAccountType);
+      setAccountBalance(response.data);
     } catch (error) {
-      console.error('Balance fetch error:', error);
-      
-      let errorMessage = 'Failed to fetch balance';
-      
-      if (error.response?.data?.error) {
-        errorMessage = error.response.data.error;
-      } else if (error.response?.data?.message) {
-        errorMessage = error.response.data.message;
-      } else if (error.message) {
-        errorMessage = error.message;
-      }
-      
-      // Special handling for common errors
-      if (errorMessage.includes('token') || errorMessage.includes('authentication')) {
-        errorMessage = `${currentAccountType.toUpperCase()} API token is invalid or expired. Please reconfigure.`;
-      } else if (errorMessage.includes('timeout')) {
-        errorMessage = 'Request timed out. Please check your connection.';
-      } else if (errorMessage.includes('connection')) {
-        errorMessage = 'Unable to connect to Deriv servers. Please try again.';
-      }
-      
+      const errorMessage = error.response?.data?.error || 'Failed to fetch balance';
       setBalanceError(errorMessage);
-      setAccountBalance(null);
     } finally {
       setIsLoadingBalance(false);
     }
@@ -651,12 +605,6 @@ const Dashboard = () => {
               currentPrice={currentPrice}
               selectedIndex={currentIndexName}
             />
-            
-            {/* AI Trading Bot */}
-            <AITradingBot user={user} />
-            
-            {/* Technical Trading Bot */}
-            <TechnicalTradingBot user={user} />
             
             {/* Auto Trading Control */}
             <div className="bg-white rounded-lg shadow-md border border-gray-100">

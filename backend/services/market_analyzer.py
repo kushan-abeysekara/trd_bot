@@ -5,25 +5,21 @@ import asyncio
 import json
 import logging
 from typing import Dict, List, Optional, Tuple
+from openai import OpenAI
 from threading import Thread
 import time
 import websocket
 import ssl
 from collections import deque
-import sqlite3
-from sklearn.ensemble import RandomForestRegressor, IsolationForest
-from sklearn.preprocessing import StandardScaler
-from sklearn.cluster import KMeans
-import ta
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class RealTimeMarketAnalyzer:
-    def __init__(self):
-        """Initialize the real-time market analyzer with ML capabilities"""
-        # Remove OpenAI initialization entirely
-        logger.info("Market analyzer initialized with local ML models only")
+    def __init__(self, openai_api_key: str = None):
+        """Initialize the real-time market analyzer"""
+        self.openai_api_key = openai_api_key or "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"
+        self.openai_client = OpenAI(api_key=self.openai_api_key)
         
         # Data storage
         self.price_data = deque(maxlen=1000)  # Store last 1000 price points
@@ -45,16 +41,6 @@ class RealTimeMarketAnalyzer:
             'pattern_analysis': {},
             'frequency_analysis': {}
         }
-        
-        # ML Models for real-time analysis
-        self.ml_models = {
-            'price_predictor': RandomForestRegressor(n_estimators=50, max_depth=10),
-            'anomaly_detector': IsolationForest(contamination=0.1),
-            'pattern_classifier': None  # Will be initialized when enough data is available
-        }
-        
-        self.scaler = StandardScaler()
-        self.model_trained = False
 
     def add_price_data(self, price: float, timestamp: datetime = None):
         """Add new price data point"""
@@ -103,8 +89,8 @@ class RealTimeMarketAnalyzer:
             # Market sentiment
             self.market_sentiment = self._analyze_market_sentiment()
             
-            # Get ML-based analysis
-            ml_analysis = self._get_ml_analysis()
+            # Get ChatGPT analysis
+            chatgpt_analysis = self._get_chatgpt_analysis()
             
             # Prepare complete analysis
             analysis_result = {
@@ -114,7 +100,7 @@ class RealTimeMarketAnalyzer:
                 'technical_indicators': self.indicators,
                 'predictions': self.predictions,
                 'market_sentiment': self.market_sentiment,
-                'ml_analysis': ml_analysis,
+                'chatgpt_analysis': chatgpt_analysis,
                 'data_points': len(self.price_data)
             }
             
@@ -316,300 +302,40 @@ class RealTimeMarketAnalyzer:
         else:
             return 'neutral'
 
-    def _get_ml_analysis(self) -> str:
-        """Get ML-based market analysis using local models"""
+    def _get_chatgpt_analysis(self) -> str:
+        """Get AI analysis from ChatGPT"""
         try:
             if not self.indicators or not self.price_data:
-                return self._generate_technical_analysis()
+                return self._generate_fallback_analysis()
             
-            # Extract features for ML analysis
-            features = self._extract_analysis_features()
+            # Prepare market data for ChatGPT
+            current_price = self.price_data[-1]['price']
+            recent_prices = [p['price'] for p in list(self.price_data)[-10:]]
             
-            if features is None or len(features) == 0:
-                return self._generate_technical_analysis()
+            prompt = f"""Analyze this market data:
+            Current Price: {current_price}
+            Recent prices: {recent_prices}
+            RSI: {self.indicators.get('rsi', 'N/A')}
+            Volatility: {self.indicators.get('volatility', 'N/A')}
+            Market Sentiment: {self.market_sentiment}
             
-            # Get ML predictions
-            price_prediction = self._predict_price_direction(features)
-            anomaly_score = self._detect_market_anomalies(features)
-            volatility_forecast = self._forecast_volatility(features)
+            Provide a brief analysis in 2-3 sentences focusing on trading opportunities."""
             
-            # Generate comprehensive ML analysis
-            analysis = self._generate_ml_analysis_text(
-                price_prediction, anomaly_score, volatility_forecast
+            response = self.openai_client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=150,
+                temperature=0.7
             )
             
-            return analysis
+            return response.choices[0].message.content.strip()
             
         except Exception as e:
-            logger.error(f"ML analysis error: {str(e)}")
-            return self._generate_technical_analysis(error_type="ml_error")
+            logger.error(f"ChatGPT analysis error: {str(e)}")
+            return self._generate_fallback_analysis()
 
-    def _extract_analysis_features(self) -> Optional[np.ndarray]:
-        """Extract features for ML analysis"""
-        try:
-            if len(self.price_data) < 20:
-                return None
-            
-            prices = np.array([p['price'] for p in list(self.price_data)[-50:]])
-            
-            # Technical features
-            features = []
-            
-            # Price momentum features
-            if len(prices) >= 5:
-                short_ma = np.mean(prices[-5:])
-                long_ma = np.mean(prices[-20:] if len(prices) >= 20 else prices)
-                momentum = (short_ma - long_ma) / long_ma if long_ma > 0 else 0
-                features.append(momentum)
-            else:
-                features.append(0)
-            
-            # Volatility features
-            returns = np.diff(prices) / prices[:-1] if len(prices) > 1 else [0]
-            volatility = np.std(returns) if len(returns) > 0 else 0
-            features.append(volatility)
-            
-            # RSI
-            rsi = self.indicators.get('rsi', 50) / 100.0  # Normalize
-            features.append(rsi)
-            
-            # Trend strength
-            trend_strength = self.indicators.get('trend_strength', 0)
-            features.append(trend_strength)
-            
-            # Price position in recent range
-            if len(prices) >= 10:
-                recent_min = np.min(prices[-10:])
-                recent_max = np.max(prices[-10:])
-                current_price = prices[-1]
-                
-                if recent_max > recent_min:
-                    price_position = (current_price - recent_min) / (recent_max - recent_min)
-                else:
-                    price_position = 0.5
-                features.append(price_position)
-            else:
-                features.append(0.5)
-            
-            return np.array(features).reshape(1, -1)
-            
-        except Exception as e:
-            logger.error(f"Feature extraction error: {str(e)}")
-            return None
-    
-    def _predict_price_direction(self, features: np.ndarray) -> Dict:
-        """Predict price direction using ML models"""
-        try:
-            # Train model if not already trained and enough data available
-            if not self.model_trained and len(self.price_data) >= 100:
-                self._train_ml_models()
-            
-            if not self.model_trained:
-                # Use simple technical analysis
-                momentum = features[0][0] if len(features[0]) > 0 else 0
-                return {
-                    'direction': 'bullish' if momentum > 0 else 'bearish',
-                    'confidence': min(0.8, abs(momentum) * 10),
-                    'method': 'technical_fallback'
-                }
-            
-            # Use trained ML model for prediction
-            # For now, using simple logic - to be enhanced with actual trained models
-            momentum = features[0][0] if len(features[0]) > 0 else 0
-            rsi = features[0][2] if len(features[0]) > 2 else 0.5
-            volatility = features[0][1] if len(features[0]) > 1 else 0
-            
-            # Ensemble logic
-            bullish_signals = 0
-            bearish_signals = 0
-            
-            if momentum > 0.01:
-                bullish_signals += 1
-            elif momentum < -0.01:
-                bearish_signals += 1
-            
-            if rsi < 0.3:  # Oversold
-                bullish_signals += 1
-            elif rsi > 0.7:  # Overbought
-                bearish_signals += 1
-            
-            if volatility > 0.02:  # High volatility
-                # Add volatility break-out signal
-                if momentum > 0:
-                    bullish_signals += 1
-                else:
-                    bearish_signals += 1
-            
-            total_signals = bullish_signals + bearish_signals
-            confidence = abs(bullish_signals - bearish_signals) / max(total_signals, 1) * 0.8
-            
-            direction = 'bullish' if bullish_signals > bearish_signals else 'bearish'
-            
-            return {
-                'direction': direction,
-                'confidence': confidence,
-                'method': 'ml_ensemble',
-                'bullish_signals': bullish_signals,
-                'bearish_signals': bearish_signals
-            }
-            
-        except Exception as e:
-            logger.error(f"Price direction prediction error: {str(e)}")
-            return {'direction': 'neutral', 'confidence': 0.5, 'method': 'error_fallback'}
-    
-    def _detect_market_anomalies(self, features: np.ndarray) -> Dict:
-        """Detect market anomalies using isolation forest"""
-        try:
-            if len(self.price_data) < 50:
-                return {'anomaly_detected': False, 'anomaly_score': 0}
-            
-            # Use isolation forest for anomaly detection
-            prices = np.array([p['price'] for p in list(self.price_data)[-50:]])
-            price_features = prices.reshape(-1, 1)
-            
-            # Simple anomaly detection based on price deviation
-            mean_price = np.mean(prices)
-            std_price = np.std(prices)
-            current_price = prices[-1]
-            
-            z_score = abs(current_price - mean_price) / std_price if std_price > 0 else 0
-            
-            anomaly_detected = z_score > 2.5  # More than 2.5 standard deviations
-            
-            return {
-                'anomaly_detected': anomaly_detected,
-                'anomaly_score': min(z_score / 3.0, 1.0),  # Normalize to 0-1
-                'z_score': z_score
-            }
-            
-        except Exception as e:
-            logger.error(f"Anomaly detection error: {str(e)}")
-            return {'anomaly_detected': False, 'anomaly_score': 0}
-    
-    def _forecast_volatility(self, features: np.ndarray) -> Dict:
-        """Forecast short-term volatility"""
-        try:
-            if len(self.price_data) < 20:
-                return {'volatility_forecast': 'insufficient_data'}
-            
-            prices = np.array([p['price'] for p in list(self.price_data)[-30:]])
-            returns = np.diff(prices) / prices[:-1]
-            
-            # Current volatility
-            current_vol = np.std(returns)
-            
-            # Recent volatility trend
-            if len(returns) >= 20:
-                recent_vol = np.std(returns[-10:])
-                older_vol = np.std(returns[-20:-10])
-                vol_trend = 'increasing' if recent_vol > older_vol * 1.1 else 'decreasing' if recent_vol < older_vol * 0.9 else 'stable'
-            else:
-                vol_trend = 'stable'
-            
-            # Volatility regime
-            if current_vol > 0.02:
-                regime = 'high_volatility'
-            elif current_vol < 0.005:
-                regime = 'low_volatility'
-            else:
-                regime = 'medium_volatility'
-            
-            return {
-                'current_volatility': current_vol,
-                'volatility_trend': vol_trend,
-                'volatility_regime': regime,
-                'volatility_percentile': self._calculate_volatility_percentile(current_vol)
-            }
-            
-        except Exception as e:
-            logger.error(f"Volatility forecast error: {str(e)}")
-            return {'volatility_forecast': 'error'}
-    
-    def _calculate_volatility_percentile(self, current_vol: float) -> float:
-        """Calculate current volatility percentile"""
-        try:
-            if len(self.price_data) < 100:
-                return 0.5
-            
-            # Calculate historical volatilities
-            prices = np.array([p['price'] for p in list(self.price_data)])
-            historical_vols = []
-            
-            for i in range(20, len(prices), 5):  # Every 5 periods
-                window_prices = prices[i-20:i]
-                returns = np.diff(window_prices) / window_prices[:-1]
-                vol = np.std(returns)
-                historical_vols.append(vol)
-            
-            if len(historical_vols) < 5:
-                return 0.5
-            
-            # Calculate percentile
-            percentile = len([v for v in historical_vols if v < current_vol]) / len(historical_vols)
-            return percentile
-            
-        except Exception as e:
-            logger.error(f"Volatility percentile calculation error: {str(e)}")
-            return 0.5
-    
-    def _generate_ml_analysis_text(self, price_prediction: Dict, anomaly_score: Dict, volatility_forecast: Dict) -> str:
-        """Generate human-readable ML analysis"""
-        try:
-            analysis = "🤖 ML Market Analysis: "
-            
-            # Price direction analysis
-            direction = price_prediction.get('direction', 'neutral')
-            confidence = price_prediction.get('confidence', 0.5)
-            method = price_prediction.get('method', 'unknown')
-            
-            analysis += f"{direction.upper()} bias detected with {confidence:.1%} confidence ({method}). "
-            
-            # Volatility analysis
-            vol_regime = volatility_forecast.get('volatility_regime', 'unknown')
-            vol_trend = volatility_forecast.get('volatility_trend', 'stable')
-            
-            analysis += f"Volatility: {vol_regime.replace('_', ' ')} regime, trend is {vol_trend}. "
-            
-            # Anomaly analysis
-            if anomaly_score.get('anomaly_detected', False):
-                anomaly_level = anomaly_score.get('anomaly_score', 0)
-                analysis += f"⚠️ Market anomaly detected (score: {anomaly_level:.2f}) - proceed with caution. "
-            else:
-                analysis += "Normal market conditions, no anomalies detected. "
-            
-            # Trading recommendations
-            if confidence > 0.7 and not anomaly_score.get('anomaly_detected', False):
-                analysis += f"Strong {direction} signal - consider {direction} trades with appropriate risk management."
-            elif confidence > 0.6:
-                analysis += f"Moderate {direction} signal - wait for confirmation before trading."
-            else:
-                analysis += "Weak signal - consider staying on sidelines or using neutral strategies."
-            
-            return analysis
-            
-        except Exception as e:
-            logger.error(f"ML analysis text generation error: {str(e)}")
-            return "ML analysis temporarily unavailable - using technical indicators only."
-    
-    def _train_ml_models(self):
-        """Train ML models with available data"""
-        try:
-            if len(self.price_data) < 100:
-                return False
-            
-            # For now, mark as trained - actual training logic will be implemented
-            # when we have sufficient historical data and outcomes
-            self.model_trained = True
-            logger.info("ML models training initiated with local data")
-            
-            return True
-            
-        except Exception as e:
-            logger.error(f"ML model training error: {str(e)}")
-            return False
-
-    def _generate_technical_analysis(self, error_type: str = None) -> str:
-        """Generate technical analysis when ML is unavailable"""
+    def _generate_fallback_analysis(self) -> str:
+        """Generate fallback analysis when ChatGPT is unavailable"""
         if not self.indicators:
             return "Insufficient data for market analysis. Please wait for more price data."
         
@@ -617,18 +343,7 @@ class RealTimeMarketAnalyzer:
         rsi = self.indicators.get('rsi', 50)
         trend_strength = self.indicators.get('trend_strength', 0)
         
-        # Add error-specific messaging
-        error_messages = {
-            "authentication": "⚠️ AI service authentication failed. ",
-            "rate_limit": "⚠️ AI service quota exceeded. ",
-            "connection": "⚠️ AI service connection failed. ",
-            "timeout": "⚠️ AI service timeout. ",
-            "unknown": "⚠️ AI service temporarily unavailable. "
-        }
-        
-        error_prefix = error_messages.get(error_type, "ℹ️ Using technical analysis. ") if error_type else "ℹ️ Using technical analysis. "
-        
-        analysis = f"{error_prefix}Market Analysis: {self.market_sentiment.upper()} sentiment detected. "
+        analysis = f"Market Analysis: {self.market_sentiment.upper()} sentiment detected. "
         
         if volatility > 0.02:
             analysis += "High volatility suggests active trading opportunities. "
