@@ -80,18 +80,36 @@ export const tradingAPI = {
   switchAccount: (accountType) => api.post('/deriv/switch-account', { account_type: accountType }),
   getStats: (accountType) => api.get(`/trading/stats${accountType ? `?account_type=${accountType}` : ''}`),
   getRecentActivity: (accountType) => api.get(`/trading/activity${accountType ? `?account_type=${accountType}` : ''}`),
-  // Add new AI analysis endpoints
-  analyzeMarket: (data) => api.post('/ai/analyze-market', data),
-  getTradingRecommendation: (symbol, dataPoints) => {
-    // Add better validation and debugging
-    console.log(`Trading recommendation API call for ${symbol} with ${dataPoints?.length || 0} data points`);
-    
-    // Ensure data points are properly formatted
-    const formattedDataPoints = dataPoints && Array.isArray(dataPoints) 
+  
+  // Add new API endpoints for proper balance handling
+  getUserProfile: () => api.get('/auth/profile'),
+  updateUserProfile: (data) => api.put('/auth/profile', data),
+  
+  // Enhanced balance endpoint with better error handling
+  getBalanceWithRetry: async (accountType, maxRetries = 3) => {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const response = await api.get(`/deriv/balance${accountType ? `?account_type=${accountType}` : ''}`);
+        return response;
+      } catch (error) {
+        console.error(`Balance fetch attempt ${attempt} failed:`, error);
+        if (attempt === maxRetries) {
+          throw error;
+        }
+        // Wait before retrying
+        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+      }
+    }
+  }
+};
+
+// AI Analysis API endpoints
+export const aiAPI = {
+  getTradingRecommendation: (symbol, dataPoints = []) => {
+    // Format data points for API
+    const formattedDataPoints = Array.isArray(dataPoints) && dataPoints.length > 0
       ? dataPoints.map(point => {
-          if (typeof point === 'number') {
-            return { price: point, timestamp: new Date().toISOString() };
-          } else if (typeof point === 'object') {
+          if (typeof point === 'object' && point !== null) {
             return {
               price: point.price || point.value || 0,
               timestamp: point.timestamp || new Date().toISOString()
@@ -235,7 +253,98 @@ export const tradingAPI = {
   retrainMlModels: () => api.post('/trading-bot/ml-models/retrain'),
   getMlModelPerformance: () => api.get('/trading-bot/ml-models/performance'),
   testTradingSignal: (data) => api.post('/trading-bot/test-signal', data),
-  getBotConfigurations: () => api.get('/trading-bot/bot-configs')
+  getBotConfigurations: () => api.get('/trading-bot/bot-configs'),
+
+  // Technical Trading Bot API endpoints
+  startTechnicalBot: async (data) => {
+    try {
+      const response = await api.post('/technical-bot/start', data);
+      return response.data;
+    } catch (error) {
+      console.error('Start technical bot error:', error);
+      throw error;
+    }
+  },
+  
+  stopTechnicalBot: async () => {
+    try {
+      const response = await api.post('/technical-bot/stop');
+      return response.data;
+    } catch (error) {
+      console.error('Stop technical bot error:', error);
+      throw error;
+    }
+  },
+  
+  getTechnicalBotStatus: async () => {
+    try {
+      const response = await api.get('/technical-bot/status');
+      return response.data;
+    } catch (error) {
+      console.error('Get technical bot status error:', error);
+      throw error;
+    }
+  },
+  
+  updateTechnicalBotSettings: async (data) => {
+    try {
+      const response = await api.put('/technical-bot/update-settings', data);
+      return response.data;
+    } catch (error) {
+      console.error('Update technical bot settings error:', error);
+      throw error;
+    }
+  },
+  
+  getTechnicalTradingHistory: async (params) => {
+    try {
+      const response = await api.get('/technical-bot/trade-history', { params });
+      return response.data;
+    } catch (error) {
+      console.error('Get technical trading history error:', error);
+      throw error;
+    }
+  },
+  
+  changeTechnicalBotStrategy: async (data) => {
+    try {
+      const response = await api.post('/technical-bot/strategy', data);
+      return response.data;
+    } catch (error) {
+      console.error('Change technical bot strategy error:', error);
+      throw error;
+    }
+  },
+  
+  getTechnicalBotPerformance: async () => {
+    try {
+      const response = await api.get('/technical-bot/performance');
+      return response.data;
+    } catch (error) {
+      console.error('Get technical bot performance error:', error);
+      throw error;
+    }
+  },
+
+  getTechnicalBotSessions: async (params) => {
+    try {
+      const response = await api.get('/technical-bot/sessions', { params });
+      return response.data;
+    } catch (error) {
+      console.error('Get technical bot sessions error:', error);
+      throw error;
+    }
+  },
+  
+  getTechnicalBotStrategies: async () => {
+    try {
+      const response = await api.get('/technical-bot/strategies');
+      return response.data;
+    } catch (error) {
+      console.error('Get technical bot strategies error:', error);
+      throw error;
+    }
+  }
 };
 
 export default api;

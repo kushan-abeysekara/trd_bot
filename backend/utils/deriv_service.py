@@ -152,12 +152,13 @@ class DerivService:
             }
     
     def get_real_time_balance(self, api_token):
-        """Get real-time balance from Deriv"""
+        """Get real-time balance from Deriv with enhanced error handling"""
         try:
+            print(f"Connecting to Deriv WebSocket: {self.ws_url}")
             ws = websocket.create_connection(
                 self.ws_url,
                 sslopt={"cert_reqs": ssl.CERT_NONE},
-                timeout=10
+                timeout=15  # Increased timeout
             )
             
             # Authorize
@@ -166,15 +167,32 @@ class DerivService:
                 "req_id": 1
             }
             ws.send(json.dumps(auth_request))
-            ws.settimeout(10)
+            ws.settimeout(15)
+            
             auth_response = json.loads(ws.recv())
+            print(f"Auth response: {auth_response}")
             
             if 'error' in auth_response:
                 ws.close()
-                return {
-                    'success': False,
-                    'message': auth_response['error']['message']
-                }
+                error_code = auth_response['error'].get('code', 'UNKNOWN')
+                error_message = auth_response['error']['message']
+                
+                # Map common error codes to user-friendly messages
+                if error_code == 'InvalidToken':
+                    return {
+                        'success': False,
+                        'message': 'Invalid API token. Please check your token and try again.'
+                    }
+                elif error_code == 'DisabledClient':
+                    return {
+                        'success': False,
+                        'message': 'Your account is disabled. Please contact Deriv support.'
+                    }
+                else:
+                    return {
+                        'success': False,
+                        'message': f'Authentication failed: {error_message}'
+                    }
             
             # Get current balance
             balance_request = {
@@ -183,6 +201,7 @@ class DerivService:
             }
             ws.send(json.dumps(balance_request))
             balance_response = json.loads(ws.recv())
+            print(f"Balance response: {balance_response}")
             
             ws.close()
             
@@ -192,21 +211,55 @@ class DerivService:
                     'message': balance_response['error']['message']
                 }
             
+            # Extract balance data
+            balance_data = balance_response.get('balance', {})
             return {
                 'success': True,
                 'data': {
-                    'balance': float(balance_response['balance']['balance']),
-                    'currency': balance_response['balance']['currency'],
-                    'loginid': balance_response['balance']['loginid']
+                    'balance': float(balance_data.get('balance', 0)),
+                    'currency': balance_data.get('currency', 'USD'),
+                    'loginid': balance_data.get('loginid', '')
                 }
             }
             
-        except Exception as e:
-            print(f"Get real-time balance error: {str(e)}")
+        except websocket.WebSocketTimeoutException:
+            print("WebSocket timeout occurred")
             return {
                 'success': False,
-                'message': f'Failed to get balance: Connection error'
+                'message': 'Connection timeout. Please check your internet connection and try again.'
             }
+        except websocket.WebSocketConnectionClosedException:
+            print("WebSocket connection closed unexpectedly")
+            return {
+                'success': False,
+                'message': 'Connection lost. Please try again.'
+            }
+        except json.JSONDecodeError as e:
+            print(f"JSON decode error: {str(e)}")
+            return {
+                'success': False,
+                'message': 'Invalid response from server. Please try again.'
+            }
+        except Exception as e:
+            print(f"Get real-time balance error: {str(e)}")
+            error_message = str(e)
+            
+            # Provide user-friendly error messages
+            if "timeout" in error_message.lower():
+                return {
+                    'success': False,
+                    'message': 'Request timed out. Please check your connection and try again.'
+                }
+            elif "connection" in error_message.lower():
+                return {
+                    'success': False,
+                    'message': 'Unable to connect to Deriv servers. Please try again later.'
+                }
+            else:
+                return {
+                    'success': False,
+                    'message': 'Unable to fetch balance. Please try again or contact support.'
+                }
     
     def start_balance_stream(self, api_token, callback):
         """Start real-time balance streaming"""

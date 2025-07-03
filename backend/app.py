@@ -15,6 +15,7 @@ from routes.deriv_api import deriv_bp
 from routes.ai_analysis import ai_bp
 from routes.market_analysis import market_analysis_bp
 from routes.trading_bot import trading_bot_bp
+from routes.technical_trading_bot import technical_bot_bp
 
 def create_app():
     """Create and configure the Flask application"""
@@ -22,7 +23,8 @@ def create_app():
     
     # Configuration
     app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key')
-    app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'sqlite:///trading_bot.db')
+    # Force SQLite for local development - override any DATABASE_URL
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///trading_bot.db'
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'jwt-secret-string')
     app.config['JWT_ACCESS_TOKEN_EXPIRES'] = int(os.getenv('JWT_ACCESS_TOKEN_EXPIRES', 86400))  # 24 hours
@@ -44,6 +46,7 @@ def create_app():
     app.register_blueprint(ai_bp)
     app.register_blueprint(market_analysis_bp)  # New market analysis routes
     app.register_blueprint(trading_bot_bp)  # New trading bot routes
+    app.register_blueprint(technical_bot_bp)  # Technical trading bot routes
     
     # Create database tables and handle migrations
     with app.app_context():

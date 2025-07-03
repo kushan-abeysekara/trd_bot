@@ -123,7 +123,8 @@ def get_real_time_balance():
     """Get real-time balance from Deriv account"""
     try:
         user_id = get_jwt_identity()
-        print(f"Balance request for user ID: {user_id}")
+        account_type = request.args.get('account_type', 'demo')  # Default to demo
+        print(f"Balance request for user ID: {user_id}, account type: {account_type}")
         
         user = User.query.get(user_id)
         
@@ -131,50 +132,84 @@ def get_real_time_balance():
             print(f"User not found for ID: {user_id}")
             return jsonify({'error': 'User not found'}), 404
         
-        print(f"User found: {user.first_name} {user.last_name}, has API token: {bool(user.deriv_api_token)}")
+        # Get the appropriate API token based on account type
+        api_token = None
+        if account_type == 'demo':
+            api_token = user.deriv_demo_api_token or user.deriv_api_token
+        else:  # real
+            api_token = user.deriv_real_api_token or user.deriv_api_token
         
-        if not user or not user.deriv_api_token:
-            print("No Deriv API token found for user")
-            return jsonify({'error': 'No Deriv API token found'}), 404
+        print(f"User found: {user.first_name} {user.last_name}")
+        print(f"Has demo token: {bool(user.deriv_demo_api_token)}")
+        print(f"Has real token: {bool(user.deriv_real_api_token)}")
+        print(f"Using token for {account_type}: {bool(api_token)}")
+        
+        if not api_token:
+            print(f"No {account_type} API token found for user")
+            return jsonify({
+                'error': f'No {account_type} API token configured',
+                'code': 'NO_API_TOKEN',
+                'account_type': account_type
+            }), 404
         
         # Get real-time balance from Deriv
         print("Attempting to get real-time balance from Deriv")
-        balance_result = deriv_service.get_real_time_balance(user.deriv_api_token)
+        balance_result = deriv_service.get_real_time_balance(api_token)
         print(f"Balance result: {balance_result}")
         
         if balance_result['success']:
             # Update user balance in database
-            user.deriv_balance = balance_result['data']['balance']
-            user.deriv_currency = balance_result['data']['currency']
+            balance_data = balance_result['data']
+            
+            if account_type == 'demo':
+                user.deriv_demo_balance = balance_data['balance']
+            else:
+                user.deriv_real_balance = balance_data['balance']
+            
+            # Also update general fields for backward compatibility
+            user.deriv_balance = balance_data['balance']
+            user.deriv_currency = balance_data['currency']
+            user.deriv_account_type = account_type
             
             # Update deriv account record
-            if user.deriv_account_id:
+            account_id = balance_data.get('loginid')
+            if account_id:
                 deriv_account = DerivAccount.query.filter_by(
                     user_id=user_id,
-                    account_id=user.deriv_account_id
+                    account_id=account_id
                 ).first()
                 
                 if deriv_account:
-                    deriv_account.balance = balance_result['data']['balance']
+                    deriv_account.balance = balance_data['balance']
                     deriv_account.last_updated = datetime.utcnow()
+                    deriv_account.account_type = account_type
             
             db.session.commit()
             print("Balance updated successfully in database")
             
             return jsonify({
-                'balance': balance_result['data']['balance'],
-                'currency': balance_result['data']['currency'],
-                'account_id': user.deriv_account_id,
-                'account_type': user.deriv_account_type,
-                'last_updated': datetime.utcnow().isoformat()
+                'balance': balance_data['balance'],
+                'currency': balance_data['currency'],
+                'account_id': account_id or user.deriv_account_id,
+                'account_type': account_type,
+                'last_updated': datetime.utcnow().isoformat(),
+                'success': True
             }), 200
         else:
             print(f"Failed to get balance from Deriv: {balance_result['message']}")
-            return jsonify({'error': balance_result['message']}), 400
+            return jsonify({
+                'error': balance_result['message'],
+                'code': 'DERIV_API_ERROR',
+                'account_type': account_type
+            }), 400
             
     except Exception as e:
         print(f"Get balance error: {str(e)}")
-        return jsonify({'error': 'Failed to get balance', 'details': str(e)}), 500
+        return jsonify({
+            'error': 'Failed to get balance', 
+            'details': str(e),
+            'code': 'INTERNAL_ERROR'
+        }), 500
 
 @deriv_bp.route('/account-status', methods=['GET'])
 @jwt_required()
@@ -237,3 +272,46 @@ def remove_api_token():
 def test():
     """Test endpoint for deriv routes"""
     return jsonify({'message': 'Deriv API routes working'}), 200
+
+@deriv_bp.route('/switch-account', methods=['POST'])
+@jwt_required()
+def switch_account():
+    """Switch between demo and real accounts"""
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json()
+        account_type = data.get('account_type')
+        
+        if account_type not in ['demo', 'real']:
+            return jsonify({'error': 'Invalid account type'}), 400
+        
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+        
+        # Check if user has API token for the requested account type
+        if account_type == 'demo':
+            has_token = bool(user.deriv_demo_api_token)
+        else:
+            has_token = bool(user.deriv_real_api_token)
+        
+        if not has_token:
+            return jsonify({
+                'error': f'No {account_type} API token configured',
+                'code': 'NO_API_TOKEN'
+            }), 400
+        
+        # Update user's current account type
+        user.deriv_account_type = account_type
+        db.session.commit()
+        
+        return jsonify({
+            'message': f'Switched to {account_type} account successfully',
+            'account_type': account_type,
+            'has_demo_token': bool(user.deriv_demo_api_token),
+            'has_real_token': bool(user.deriv_real_api_token)
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Failed to switch account: {str(e)}'}), 500
