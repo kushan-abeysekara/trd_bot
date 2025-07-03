@@ -15,7 +15,14 @@ import {
   Pause,
   Key,
   RefreshCw,
-  AlertCircle
+  AlertCircle,
+  Power,
+  Target,
+  Clock,
+  TrendingDown,
+  Zap,
+  Eye,
+  StopCircle
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { tradingAPI } from '../services/api';
@@ -205,6 +212,154 @@ const Dashboard = () => {
     setCurrentIndexName(indexName);
     setCurrentPrice(price);
     setCurrentChartData(chartData || []);
+  };
+
+  // Add bot state management
+  const [botStatus, setBotStatus] = useState({
+    is_running: false,
+    account_balance: 0,
+    daily_profit: 0,
+    daily_loss: 0,
+    win_rate: 0,
+    current_strategy: 'ADAPTIVE',
+    strategy_status: 'MONITORING',
+    active_trades_count: 0,
+    settings: {
+      auto_stake: 1.0,
+      manual_stake: 1.0,
+      max_stake: 10.0,
+      min_stake: 0.35,
+      stake_percentage: 10,
+      daily_stop_loss: 50.0,
+      daily_target: 20.0,
+      max_concurrent_trades: 3
+    }
+  });
+  const [activeTrades, setActiveTrades] = useState([]);
+  const [tradeHistory, setTradeHistory] = useState([]);
+  const [botStatistics, setBotStatistics] = useState({
+    total_trades: 0,
+    won_trades: 0,
+    lost_trades: 0,
+    total_profit: 0,
+    total_loss: 0,
+    net_profit: 0
+  });
+  const [isLoadingBot, setIsLoadingBot] = useState(false);
+  const [isStartingBot, setIsStartingBot] = useState(false);
+  const [isStoppingBot, setIsStoppingBot] = useState(false);
+
+  // Bot API functions
+  const fetchBotStatus = useCallback(async () => {
+    if (!hasCurrentAccountToken) return;
+    
+    try {
+      const response = await tradingAPI.getBotStatus();
+      setBotStatus(response.data.status);
+    } catch (error) {
+      console.error('Failed to fetch bot status:', error);
+    }
+  }, [hasCurrentAccountToken]);
+
+  const fetchActiveTrades = useCallback(async () => {
+    if (!hasCurrentAccountToken) return;
+    
+    try {
+      const response = await tradingAPI.getActiveTrades();
+      setActiveTrades(response.data.trades || []);
+    } catch (error) {
+      console.error('Failed to fetch active trades:', error);
+      setActiveTrades([]);
+    }
+  }, [hasCurrentAccountToken]);
+
+  const fetchTradeHistory = useCallback(async () => {
+    if (!hasCurrentAccountToken) return;
+    
+    try {
+      const response = await tradingAPI.getTradeHistory();
+      setTradeHistory(response.data.trades || []);
+    } catch (error) {
+      console.error('Failed to fetch trade history:', error);
+      setTradeHistory([]);
+    }
+  }, [hasCurrentAccountToken]);
+
+  const fetchBotStatistics = useCallback(async () => {
+    if (!hasCurrentAccountToken) return;
+    
+    try {
+      const response = await tradingAPI.getBotStatistics();
+      setBotStatistics(response.data.statistics);
+    } catch (error) {
+      console.error('Failed to fetch bot statistics:', error);
+    }
+  }, [hasCurrentAccountToken]);
+
+  // Fetch bot data on mount and account change
+  useEffect(() => {
+    if (hasCurrentAccountToken) {
+      fetchBotStatus();
+      fetchActiveTrades();
+      fetchTradeHistory();
+      fetchBotStatistics();
+      
+      // Set up auto-refresh for bot data
+      const botInterval = setInterval(() => {
+        fetchBotStatus();
+        fetchActiveTrades();
+        fetchBotStatistics();
+      }, 5000); // Refresh every 5 seconds for real-time updates
+      
+      return () => clearInterval(botInterval);
+    }
+  }, [hasCurrentAccountToken, currentAccountType, fetchBotStatus, fetchActiveTrades, fetchTradeHistory, fetchBotStatistics]);
+
+  const handleStartBot = async () => {
+    if (!hasCurrentAccountToken) {
+      toast.error('Please setup your API token first');
+      setShowApiSetup(true);
+      return;
+    }
+
+    setIsStartingBot(true);
+    try {
+      await tradingAPI.startBot();
+      toast.success('Trading bot started successfully');
+      fetchBotStatus();
+    } catch (error) {
+      toast.error('Failed to start trading bot');
+    } finally {
+      setIsStartingBot(false);
+    }
+  };
+
+  const handleStopBot = async () => {
+    setIsStoppingBot(true);
+    try {
+      await tradingAPI.stopBot();
+      toast.success('Trading bot stopped successfully');
+      fetchBotStatus();
+    } catch (error) {
+      toast.error('Failed to stop trading bot');
+    } finally {
+      setIsStoppingBot(false);
+    }
+  };
+
+  const handleForceCloseTrade = async (tradeId) => {
+    if (!window.confirm('Are you sure you want to force close this trade?')) {
+      return;
+    }
+
+    try {
+      await tradingAPI.forceCloseTrade(tradeId);
+      toast.success('Trade closed successfully');
+      fetchActiveTrades();
+      fetchBotStatus();
+    } catch (error) {
+      toast.error('Failed to close trade');
+    }
   };
 
   return (
@@ -606,72 +761,168 @@ const Dashboard = () => {
               selectedIndex={currentIndexName}
             />
             
-            {/* Auto Trading Control */}
+            {/* Trading Bot Control Panel */}
             <div className="bg-white rounded-lg shadow-md border border-gray-100">
               <div className="p-6">
                 <div className="flex items-center justify-between mb-6">
-                  <h3 className="text-lg font-semibold text-gray-900">Auto Trading</h3>
+                  <h3 className="text-lg font-semibold text-gray-900 flex items-center space-x-2">
+                    <Bot className="w-6 h-6 text-blue-600" />
+                    <span>AI Trading Bot</span>
+                  </h3>
                   <div className="flex items-center space-x-3">
                     <div className="flex items-center space-x-2">
                       <span className={`text-sm font-medium transition-colors ${
-                        autoTradeEnabled ? 'text-green-600' : 'text-gray-500'
+                        botStatus.is_running ? 'text-green-600' : 'text-gray-500'
                       }`}>
-                        {autoTradeEnabled ? 'Active' : 'Inactive'}
+                        {botStatus.is_running ? 'Running' : 'Stopped'}
                       </span>
                       <div className={`w-2 h-2 rounded-full transition-colors ${
-                        autoTradeEnabled ? 'bg-green-400 animate-pulse' : 'bg-gray-300'
+                        botStatus.is_running ? 'bg-green-400 animate-pulse' : 'bg-gray-300'
                       }`}></div>
                     </div>
-                    <button
-                      onClick={toggleAutoTrade}
-                      className={`p-2 rounded-lg transition-all duration-200 ${
-                        autoTradeEnabled 
-                          ? 'bg-green-100 text-green-600 hover:bg-green-200 shadow-sm' 
-                          : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                      }`}
-                    >
-                      {autoTradeEnabled ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
-                    </button>
+                    <div className="flex space-x-2">
+                      {!botStatus.is_running ? (
+                        <button
+                          onClick={handleStartBot}
+                          disabled={isStartingBot || !hasCurrentAccountToken}
+                          className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
+                        >
+                          {isStartingBot ? (
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                          ) : (
+                            <Play className="w-4 h-4" />
+                          )}
+                          <span>{isStartingBot ? 'Starting...' : 'Start Bot'}</span>
+                        </button>
+                      ) : (
+                        <button
+                          onClick={handleStopBot}
+                          disabled={isStoppingBot}
+                          className="flex items-center space-x-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
+                        >
+                          {isStoppingBot ? (
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                          ) : (
+                            <StopCircle className="w-4 h-4" />
+                          )}
+                          <span>{isStoppingBot ? 'Stopping...' : 'Stop Bot'}</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
 
-                {/* Trading Bot Status - Fixed Height */}
-                <div className="space-y-4">
-                  <div className="h-20 p-4 bg-gradient-to-r from-gray-50 to-blue-50 rounded-lg border border-gray-200">
-                    <div className="flex items-center justify-between h-full">
-                      <div className="flex items-center space-x-4">
-                        <div className={`w-12 h-12 rounded-lg flex items-center justify-center transition-colors ${
-                          autoTradeEnabled ? 'bg-blue-100' : 'bg-gray-100'
-                        }`}>
-                          <Bot className={`w-6 h-6 transition-colors ${
-                            autoTradeEnabled ? 'text-blue-600' : 'text-gray-400'
-                          }`} />
-                        </div>
-                        <div>
-                          <p className="font-medium text-gray-900">AI Trading Bot</p>
-                          <p className="text-sm text-gray-600">
-                            {autoTradeEnabled ? 'Monitoring markets and executing trades' : 'Waiting for activation'}
-                          </p>
-                        </div>
+                {/* Bot Status Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                  <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-blue-600 font-medium">Strategy</p>
+                        <p className="text-lg font-bold text-blue-900">{botStatus.current_strategy}</p>
+                        <p className="text-xs text-blue-700">{botStatus.strategy_status}</p>
                       </div>
-                      <div className={`w-4 h-4 rounded-full transition-all duration-300 ${
-                        autoTradeEnabled ? 'bg-green-400 animate-pulse shadow-lg' : 'bg-gray-300'
-                      }`}></div>
+                      <Target className="w-8 h-8 text-blue-600" />
                     </div>
                   </div>
-
-                  {/* Strategy Info - Fixed Grid */}
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="h-16 p-3 border border-gray-200 rounded-lg bg-gradient-to-br from-yellow-50 to-orange-50 flex flex-col justify-center">
-                      <p className="text-sm text-gray-600 mb-1">Risk Level</p>
-                      <p className="font-semibold text-yellow-600">Medium</p>
+                  
+                  <div className="p-4 bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg border border-green-200">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-green-600 font-medium">Daily P&L</p>
+                        <p className={`text-lg font-bold ${
+                          (botStatus.daily_profit - botStatus.daily_loss) > 0 ? 'text-green-900' : 'text-red-600'
+                        }`}>
+                          ${(botStatus.daily_profit - botStatus.daily_loss).toFixed(2)}
+                        </p>
+                        <p className="text-xs text-green-700">
+                          +${botStatus.daily_profit.toFixed(2)} / -${botStatus.daily_loss.toFixed(2)}
+                        </p>
+                      </div>
+                      <TrendingUp className="w-8 h-8 text-green-600" />
                     </div>
-                    <div className="h-16 p-3 border border-gray-200 rounded-lg bg-gradient-to-br from-blue-50 to-indigo-50 flex flex-col justify-center">
-                      <p className="text-sm text-gray-600 mb-1">Strategy</p>
-                      <p className="font-semibold text-blue-600">AI Adaptive</p>
+                  </div>
+                  
+                  <div className="p-4 bg-gradient-to-r from-purple-50 to-violet-50 rounded-lg border border-purple-200">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-purple-600 font-medium">Active Trades</p>
+                        <p className="text-lg font-bold text-purple-900">{botStatus.active_trades_count}</p>
+                        <p className="text-xs text-purple-700">
+                          Max: {botStatus.settings.max_concurrent_trades}
+                        </p>
+                      </div>
+                      <Activity className="w-8 h-8 text-purple-600" />
                     </div>
                   </div>
                 </div>
+
+                {/* Bot Settings Display */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                  <div className="p-3 bg-gray-50 rounded-lg border">
+                    <p className="text-xs text-gray-600 mb-1">Current Stake</p>
+                    <p className="font-bold text-gray-900">${botStatus.settings.auto_stake}</p>
+                  </div>
+                  <div className="p-3 bg-gray-50 rounded-lg border">
+                    <p className="text-xs text-gray-600 mb-1">Win Rate</p>
+                    <p className="font-bold text-gray-900">{botStatus.win_rate.toFixed(1)}%</p>
+                  </div>
+                  <div className="p-3 bg-gray-50 rounded-lg border">
+                    <p className="text-xs text-gray-600 mb-1">Daily Target</p>
+                    <p className="font-bold text-green-600">${botStatus.settings.daily_target}</p>
+                  </div>
+                  <div className="p-3 bg-gray-50 rounded-lg border">
+                    <p className="text-xs text-gray-600 mb-1">Stop Loss</p>
+                    <p className="font-bold text-red-600">${botStatus.settings.daily_stop_loss}</p>
+                  </div>
+                </div>
+
+                {/* Active Trades Section */}
+                {activeTrades.length > 0 && (
+                  <div className="border-t pt-6">
+                    <h4 className="text-md font-semibold text-gray-900 mb-4 flex items-center space-x-2">
+                      <Eye className="w-5 h-5 text-blue-600" />
+                      <span>Active Trades ({activeTrades.length})</span>
+                    </h4>
+                    <div className="space-y-3">
+                      {activeTrades.map((trade, index) => (
+                        <div key={trade.id || index} className="p-4 bg-gradient-to-r from-yellow-50 to-orange-50 rounded-lg border border-yellow-200">
+                          <div className="flex items-center justify-between">
+                            <div className="flex-1">
+                              <div className="flex items-center space-x-4">
+                                <div>
+                                  <p className="font-medium text-gray-900">
+                                    {trade.contract_type} - {trade.symbol}
+                                  </p>
+                                  <p className="text-sm text-gray-600">
+                                    Stake: ${trade.stake} | Entry: {trade.entry_price}
+                                  </p>
+                                </div>
+                                <div className="text-right">
+                                  <p className="text-sm text-gray-600">Duration</p>
+                                  <p className="font-medium">{trade.duration}s</p>
+                                </div>
+                                <div className="text-right">
+                                  <p className="text-sm text-gray-600">Status</p>
+                                  <p className={`font-medium ${
+                                    trade.status === 'OPEN' ? 'text-blue-600' : 'text-gray-600'
+                                  }`}>
+                                    {trade.status}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => handleForceCloseTrade(trade.id)}
+                              className="ml-4 px-3 py-1 text-sm bg-red-100 text-red-600 rounded hover:bg-red-200 transition-colors"
+                            >
+                              Force Close
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -750,6 +1001,49 @@ const Dashboard = () => {
 
           {/* Sidebar */}
           <div className="space-y-6">
+            {/* Bot Statistics */}
+            <div className="bg-white rounded-lg shadow-md border border-gray-100">
+              <div className="p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center space-x-2">
+                  <BarChart3 className="w-5 h-5 text-blue-600" />
+                  <span>Bot Performance</span>
+                </h3>
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center p-3 bg-green-50 border border-green-200 rounded-lg">
+                    <span className="text-gray-700 font-medium">Net Profit</span>
+                    <span className={`font-bold ${
+                      botStatistics.net_profit > 0 ? 'text-green-600' : 'text-red-600'
+                    }`}>
+                      ${botStatistics.net_profit?.toFixed(2) || '0.00'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <span className="text-gray-700 font-medium">Total Trades</span>
+                    <span className="text-blue-600 font-bold">{botStatistics.total_trades || 0}</span>
+                  </div>
+                  <div className="flex justify-between items-center p-3 bg-purple-50 border border-purple-200 rounded-lg">
+                    <span className="text-gray-700 font-medium">Win Rate</span>
+                    <span className="text-purple-600 font-bold">
+                      {botStatistics.total_trades > 0 
+                        ? ((botStatistics.won_trades / botStatistics.total_trades) * 100).toFixed(1)
+                        : '0.0'
+                      }%
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="p-2 bg-green-50 border border-green-200 rounded text-center">
+                      <p className="text-xs text-green-600">Won</p>
+                      <p className="font-bold text-green-700">{botStatistics.won_trades || 0}</p>
+                    </div>
+                    <div className="p-2 bg-red-50 border border-red-200 rounded text-center">
+                      <p className="text-xs text-red-600">Lost</p>
+                      <p className="font-bold text-red-700">{botStatistics.lost_trades || 0}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* API Configuration */}
             <div className="bg-white rounded-lg shadow-md border border-gray-100">
               <div className="p-6">

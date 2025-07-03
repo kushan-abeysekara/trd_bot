@@ -92,6 +92,10 @@ def prepare_market_data(data_points, indicators, market_condition):
 def get_chatgpt_analysis(symbol, analysis_data):
     """Get market analysis from ChatGPT"""
     try:
+        from openai import OpenAI
+        
+        client = OpenAI(api_key=openai.api_key)
+        
         prompt = f"""
         As an expert financial analyst, analyze the following market data for {symbol}:
 
@@ -121,7 +125,7 @@ def get_chatgpt_analysis(symbol, analysis_data):
         Keep the response concise and actionable.
         """
 
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": "You are an expert financial market analyst specializing in binary options and derivative trading."},

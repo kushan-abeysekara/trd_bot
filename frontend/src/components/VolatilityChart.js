@@ -92,7 +92,23 @@ const VolatilityChart = ({ onLastDigitUpdate }) => {
     }
   };
 
-  // Enhanced real-time updates with faster intervals
+  // Handle index change and update bot
+  const handleIndexChange = async (indexValue) => {
+    setSelectedIndex(indexValue);
+    setIsDropdownOpen(false);
+    
+    // Update bot market selection
+    try {
+      await tradingAPI.updateBotSettings({ selected_market: indexValue });
+      console.log(`Bot market updated to: ${indexValue}`);
+    } catch (error) {
+      console.error('Failed to update bot market:', error);
+    }
+    
+    fetchChartData(indexValue);
+  };
+
+  // Enhanced real-time updates with bot synchronization
   const startRealTimeUpdates = () => {
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
@@ -101,7 +117,7 @@ const VolatilityChart = ({ onLastDigitUpdate }) => {
     // Much faster updates for 1s indices
     const updateInterval = selectedIndex.includes('1s') ? 200 : 1000; // 200ms for 1s, 1s for others
 
-    intervalRef.current = setInterval(() => {
+    intervalRef.current = setInterval(async () => {
       if (chartData.length > 0) {
         const lastPrice = chartData[chartData.length - 1].price;
         const volatility = selectedIndex.includes('100') ? 0.02 : 
@@ -135,6 +151,17 @@ const VolatilityChart = ({ onLastDigitUpdate }) => {
         
         // Update price history for trend analysis
         setPriceHistory(prev => [...prev.slice(-100), newPrice]);
+        
+        // Send market data to trading bot
+        try {
+          await tradingAPI.updateMarketData({
+            market: selectedIndex,
+            price: newPrice,
+            timestamp: now
+          });
+        } catch (error) {
+          console.error('Failed to update bot market data:', error);
+        }
       }
     }, updateInterval);
   };
@@ -206,13 +233,6 @@ const VolatilityChart = ({ onLastDigitUpdate }) => {
       const y = height - 40 - ((price - minPrice) / priceRange) * (height - 60);
       ctx.fillText(price.toFixed(2), 35, y + 4);
     }
-  };
-
-  // Handle index change
-  const handleIndexChange = (indexValue) => {
-    setSelectedIndex(indexValue);
-    setIsDropdownOpen(false);
-    fetchChartData(indexValue);
   };
 
   // Initialize component

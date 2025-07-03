@@ -14,6 +14,7 @@ from routes.trading import trading_bp
 from routes.deriv_api import deriv_bp
 from routes.ai_analysis import ai_bp
 from routes.market_analysis import market_analysis_bp
+from routes.trading_bot import trading_bot_bp
 
 def create_app():
     """Create and configure the Flask application"""
@@ -40,8 +41,9 @@ def create_app():
     app.register_blueprint(auth_bp)
     app.register_blueprint(trading_bp)
     app.register_blueprint(deriv_bp)
+    app.register_blueprint(market_analysis_bp)
     app.register_blueprint(ai_bp)
-    app.register_blueprint(market_analysis_bp)  # New market analysis routes
+    app.register_blueprint(trading_bot_bp)  # Add this line
     
     # Create database tables and handle migrations
     with app.app_context():

@@ -62,7 +62,7 @@ def start_real_time_analysis(symbol):
             'analysis': analysis,
             'real_time': True,
             'symbol': symbol
-        }), 200
+        }, 200)
         
     except Exception as e:
         return jsonify({'error': f'Real-time analysis failed: {str(e)}'}), 500
@@ -148,10 +148,19 @@ def get_trading_recommendation():
         # Generate trading recommendation based on analysis
         recommendation = generate_trading_recommendation(analysis)
         
+        # Add trading bot status
+        from services.trading_bot import trading_bot
+        bot_status = trading_bot.get_status()
+        
         return jsonify({
             'success': True,
             'recommendation': recommendation,
             'symbol': symbol,
+            'bot_status': {
+                'is_running': bot_status['is_running'],
+                'strategy_status': bot_status['strategy_status'],
+                'current_strategy': bot_status['current_strategy']
+            },
             'timestamp': datetime.utcnow().isoformat()
         }), 200
         
@@ -191,14 +200,32 @@ def generate_trading_recommendation(analysis):
     # Confidence calculation
     confidence = price_movement.get('confidence', 50)
     
+    # Add Adaptive Mean Reversion strategy conditions
+    strategy_conditions = {
+        'rsi_in_range': 48 <= rsi <= 52,
+        'volatility_optimal': 1.0 <= (volatility * 100) <= 1.5,
+        'low_momentum': abs(indicators.get('momentum', 0) * 100) < 0.2,
+        'flat_macd': abs(indicators.get('macd', {}).get('macd', 0)) <= 0.1
+    }
+    
+    # Check if conditions are met for Adaptive Mean Reversion
+    if all(strategy_conditions.values()):
+        recommended_strategy = "Adaptive Mean Reversion Rebound"
+        strategy_confidence = 85
+    else:
+        recommended_strategy = "Standard Technical Analysis"
+        strategy_confidence = confidence
+    
     return {
         'contract_type': contract_type,
         'direction': direction,
-        'confidence': confidence,
+        'confidence': strategy_confidence,
         'risk_level': risk_level,
-        'duration': '2-5 minutes' if volatility > 0.01 else '5-10 minutes',
-        'reasoning': f"Based on {sentiment} market sentiment and technical analysis",
-        'future_digits': predictions.get('future_digits', [])[:3],  # Next 3 predictions
+        'duration': '5-7 seconds' if recommended_strategy == "Adaptive Mean Reversion Rebound" else '2-5 minutes',
+        'reasoning': f"Based on {sentiment} market sentiment and {recommended_strategy}",
+        'strategy': recommended_strategy,
+        'strategy_conditions': strategy_conditions,
+        'future_digits': predictions.get('future_digits', [])[:3],
         'pattern_insights': predictions.get('pattern_analysis', {})
     }
 

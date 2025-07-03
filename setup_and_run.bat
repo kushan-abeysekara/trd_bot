@@ -99,6 +99,17 @@ echo • 📊 All 10 Deriv contract types supported
 echo • 🧠 ChatGPT integration for auto-training
 echo • 💾 Local ML training data saved in SQL database
 echo • 📱 Real-time monitoring and control
+echo • 🎯 Live Trading Bot with Start/Stop controls
+echo • 📋 Real-time open trades display
+echo • 📊 Complete trading history with P&L
+echo • 💰 Auto stake management with manual override
+echo • 🎨 Advanced Mean Reversion Strategy
+echo • 🔍 Real-time strategy status display
+echo • 🎛️ Real-Time Strategy Monitor Window
+echo • 📊 Live Technical Indicators Dashboard
+echo • ✅ Strategy Condition Tracker (4/4 indicators)
+echo • 🎯 Visual Signal Analysis with live validation
+echo • ⚡ Auto-refreshing conditions every 5 seconds
 echo.
 echo Press any key to stop all services...
 pause >nul

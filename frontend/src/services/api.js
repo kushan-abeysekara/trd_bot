@@ -134,7 +134,19 @@ export const tradingAPI = {
   getAnalysisStatus: async () => {
     const response = await api.get('/market-analysis/status');
     return response.data;
-  }
+  },
+  
+  // Trading Bot API methods
+  getBotStatus: () => api.get('/trading-bot/status'),
+  startBot: () => api.post('/trading-bot/start'),
+  stopBot: () => api.post('/trading-bot/stop'),
+  getActiveTrades: () => api.get('/trading-bot/active-trades'),
+  getTradeHistory: (limit = 50) => api.get(`/trading-bot/trade-history?limit=${limit}`),
+  getBotStatistics: () => api.get('/trading-bot/statistics'),
+  getBotSettings: () => api.get('/trading-bot/settings'),
+  updateBotSettings: (settings) => api.put('/trading-bot/settings', settings),
+  updateMarketData: (data) => api.post('/trading-bot/update-market-data', data),
+  forceCloseTrade: (tradeId) => api.post(`/trading-bot/force-close/${tradeId}`),
 };
 
 export default api;
