@@ -71,7 +71,7 @@ export const authAPI = {
 export const tradingAPI = {
   getProfile: () => api.get('/trading/profile'),
   updateProfile: (data) => api.put('/trading/profile', data),
-  getTradeHistory: () => api.get('/trading/history'),
+  getDerivsTradeHistory: () => api.get('/trading/history'), // Renamed to avoid conflict
   autoTrade: (settings) => api.post('/trading/auto-trade', settings),
   setupApiToken: (data) => api.post('/deriv/save-token', data),
   getBalance: (accountType) => api.get(`/deriv/balance${accountType ? `?account_type=${accountType}` : ''}`),
@@ -101,7 +101,7 @@ export const tradingAPI = {
   getRealTimeMarketCondition: (symbol) => api.get(`/ai/market-condition?symbol=${symbol}`),
   getAdvancedTechnicalIndicators: (data) => api.post('/ai/technical-indicators', data),
   // Market Analysis endpoints
-  analyzeMarket: async (data) => {
+  analyzeMarketData: async (data) => {
     const response = await api.post('/market-analysis/analyze', data);
     return response.data;
   },
@@ -111,7 +111,7 @@ export const tradingAPI = {
     return response.data;
   },
   
-  getTradingRecommendation: async (data) => {
+  getMarketTradingRecommendation: async (data) => {
     const response = await api.post('/market-analysis/trading-recommendation', data);
     return response.data;
   },
@@ -141,12 +141,32 @@ export const tradingAPI = {
   startBot: () => api.post('/trading-bot/start'),
   stopBot: () => api.post('/trading-bot/stop'),
   getActiveTrades: () => api.get('/trading-bot/active-trades'),
-  getTradeHistory: (limit = 50) => api.get(`/trading-bot/trade-history?limit=${limit}`),
+  getTradeHistory: async (limit = 50) => {
+    try {
+      const response = await api.get(`/trading-bot/trade-history?limit=${limit}`);
+      // Transform data if needed for frontend compatibility
+      if (response.data && response.data.trades) {
+        // Ensure proper date formatting and trade status
+        response.data.trades = response.data.trades.map(trade => ({
+          ...trade,
+          entry_time: new Date(trade.entry_time).toISOString(),
+          exit_time: trade.exit_time ? new Date(trade.exit_time).toISOString() : null
+        }));
+      }
+      return response;
+    } catch (error) {
+      console.error('Error fetching trade history:', error);
+      throw error;
+    }
+  },
   getBotStatistics: () => api.get('/trading-bot/statistics'),
   getBotSettings: () => api.get('/trading-bot/settings'),
   updateBotSettings: (settings) => api.put('/trading-bot/settings', settings),
   updateMarketData: (data) => api.post('/trading-bot/update-market-data', data),
   forceCloseTrade: (tradeId) => api.post(`/trading-bot/force-close/${tradeId}`),
+  getStrategies: () => api.get('/trading-bot/strategies'),
+  getStrategyDetails: (id) => api.get(`/trading-bot/strategies/${id}`),
+  setStrategy: (id) => api.post(`/trading-bot/set-strategy/${id}`),
 };
 
 export default api;

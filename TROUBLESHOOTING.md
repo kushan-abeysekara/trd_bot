@@ -16,6 +16,26 @@ Your trading bot is actually functioning properly! Here's what's happening:
    - Waiting for price to touch Bollinger Bands
    - Need specific volatility and momentum conditions
 
+### **Common Error Messages and Fixes:**
+
+#### **"'TradingBot' object has no attribute 'strategy_stats'"**
+This error occurs when starting the bot. To fix:
+- Run the diagnostic script first: `python backend/diagnose_bot.py`
+- This script automatically initializes missing attributes
+- Then try starting the bot again
+
+#### **"Failed to load trade history: Request failed with status code 500"**
+This is a backend error when loading trade history:
+- Clear your browser cache
+- Restart both backend and frontend services
+- The issue has been fixed in recent updates
+
+#### **ChatGPT API Key Issues** 🔑
+- The current key may be invalid (401 error)
+- Get a new key from: https://platform.openai.com/account/api-keys
+- Add it to your environment variables: `OPENAI_API_KEY=your_key_here`
+- Or update directly in `backend/services/market_analyzer.py`
+
 ### **How to Monitor Real-Time Conditions:**
 
 #### **Real-Time Strategy Monitor** 📊
@@ -46,31 +66,54 @@ To make the bot trade more frequently, you can:
 1. **Relax RSI Range**: Change from 48-52 to 40-60
 2. **Increase Volatility Range**: Change from 1-1.5% to 0.5-2%
 3. **Adjust Momentum Threshold**: Change from ±0.2% to ±0.5%
+4. **Use the make_bot_active.py script**:
+   ```bash
+   cd backend
+   python make_bot_active.py
+   ```
 
 #### **Option 3: Test with Manual Data** 🧪
-Use the test script to generate specific market conditions:
+Use the improved test script to generate specific market conditions:
 
 ```bash
 cd backend
 python test_bot.py
 ```
 
-### **Current Issues to Fix:**
+### **Dashboard Features:**
 
-#### **1. ChatGPT API Key** 🔑
-- Current key is invalid (401 error)
-- Get a new key from: https://platform.openai.com/account/api-keys
-- Update in `backend/routes/ai_analysis.py` and `backend/services/market_analyzer.py`
+- 🤖 Real-time bot status with live monitoring window
+- 📊 Live price charts with technical analysis
+- 📈 Active trades display with force close options
+- 💰 P&L tracking with comprehensive statistics
+- ⚙️ Strategy settings with real-time validation
+- 🎯 Performance statistics with win rate tracking
+- 📱 Real-time monitoring window with condition tracking
+- 🔄 Auto-refreshing data every 5 seconds
 
-#### **2. Frontend Dashboard** 🖥️
-To see real-time bot status:
+### **For Real Trading (Not Demo Mode):**
 
-1. **Start Backend**: `cd backend && python app.py`
-2. **Start Frontend**: `cd frontend && npm start`
-3. **Open**: http://localhost:3000
-4. **Setup API Token** in the dashboard
-5. **Start Bot** from the dashboard
-6. **Monitor Real-Time Window** for live conditions
+1. **Get a Valid API Token** 🔑
+   - Create/login to your Deriv account
+   - Go to Dashboard → Security & Limits → API Token
+   - Create a token with "Trade", "Payments" and "Admin" permissions
+   - Copy the token and add it in the dashboard settings
+
+2. **Configure Real Account Trading** 💹
+   - In the dashboard, click "Account Settings"
+   - Switch from Demo to Real account
+   - Enter your API token
+   - Save settings and restart the bot
+
+3. **Start with Small Stakes** 💰
+   - Set minimum stake amount (recommended 0.35 or 1.00)
+   - Enable auto-stake if desired
+   - Set conservative daily loss limits
+
+4. **Monitor First Trades Carefully** 👀
+   - Watch the first few trades to verify proper execution
+   - Check that win/loss is recorded correctly
+   - Verify profits are calculated accurately
 
 ### **Quick Start Commands:**
 
@@ -91,44 +134,6 @@ cd /path/to/trd_bot
 curl http://localhost:5000/api/trading-bot/test
 curl http://localhost:5000/api/trading-bot/status
 ```
-
-### **Expected Behavior:**
-
-- ✅ Bot starts and connects to Deriv WebSocket
-- ✅ Receives real-time price data
-- ✅ Shows "Strategy Status: Monitoring Conditions"
-- ✅ Real-time monitor shows live technical indicators
-- ✅ Conditions tracker shows x/4 conditions met
-- ✅ Will trade when all conditions align and BB touch occurs
-- ✅ Displays live data in dashboard
-
-### **Real-Time Monitoring Features:**
-
-- 🎯 **Strategy Status**: Live strategy state and current conditions
-- 📊 **Technical Indicators**: Real-time RSI, Volatility, Momentum, MACD
-- ✅ **Condition Tracker**: Visual indicators for each requirement
-- 🎮 **Signal Analysis**: Shows readiness for trading opportunities
-- ⚡ **Live Updates**: Refreshes every 5 seconds automatically
-
-### **Make Bot Trade More Often:**
-
-If you want to see more trading activity, consider:
-
-1. **Use Demo Mode**: Lower stakes, more experimental
-2. **Adjust Settings**: Less conservative parameters
-3. **Multiple Strategies**: Add trend-following alongside mean reversion
-4. **Different Markets**: Try multiple volatility indices
-
-### **Dashboard Features:**
-
-- 🤖 Real-time bot status with live monitoring window
-- 📊 Live price charts with technical analysis
-- 📈 Active trades display with force close options
-- 💰 P&L tracking with comprehensive statistics
-- ⚙️ Strategy settings with real-time validation
-- 🎯 Performance statistics with win rate tracking
-- 📱 Real-time monitoring window with condition tracking
-- 🔄 Auto-refreshing data every 5 seconds
 
 ## **Conclusion: Your Bot is Working!** 🎉
 

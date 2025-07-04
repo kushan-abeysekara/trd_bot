@@ -11,6 +11,7 @@ import time
 import websocket
 import ssl
 from collections import deque
+import os
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -18,8 +19,19 @@ logger = logging.getLogger(__name__)
 class RealTimeMarketAnalyzer:
     def __init__(self, openai_api_key: str = None):
         """Initialize the real-time market analyzer"""
-        self.openai_api_key = openai_api_key or "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"
-        self.openai_client = OpenAI(api_key=self.openai_api_key)
+        # Use environment variable if available, otherwise use provided key or a placeholder
+        self.openai_api_key = openai_api_key or os.environ.get("OPENAI_API_KEY") or ""
+        
+        # Handle OpenAI client initialization with error handling
+        try:
+            if self.openai_api_key:
+                self.openai_client = OpenAI(api_key=self.openai_api_key)
+            else:
+                logger.warning("No OpenAI API key provided. ChatGPT analysis will be unavailable.")
+                self.openai_client = None
+        except Exception as e:
+            logger.error(f"Failed to initialize OpenAI client: {str(e)}")
+            self.openai_client = None
         
         # Data storage
         self.price_data = deque(maxlen=1000)  # Store last 1000 price points
@@ -308,6 +320,11 @@ class RealTimeMarketAnalyzer:
             if not self.indicators or not self.price_data:
                 return self._generate_fallback_analysis()
             
+            # Check if OpenAI client is available
+            if not self.openai_client:
+                logger.warning("OpenAI client not available. Using fallback analysis.")
+                return self._generate_fallback_analysis()
+                
             # Prepare market data for ChatGPT
             current_price = self.price_data[-1]['price']
             recent_prices = [p['price'] for p in list(self.price_data)[-10:]]
@@ -321,18 +338,22 @@ class RealTimeMarketAnalyzer:
             
             Provide a brief analysis in 2-3 sentences focusing on trading opportunities."""
             
-            response = self.openai_client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=150,
-                temperature=0.7
-            )
-            
-            return response.choices[0].message.content.strip()
+            try:
+                response = self.openai_client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=150,
+                    temperature=0.7
+                )
+                
+                return response.choices[0].message.content.strip()
+            except Exception as api_error:
+                logger.error(f"OpenAI API error: {str(api_error)}")
+                return self._generate_fallback_analysis() + " (API Error)"
             
         except Exception as e:
             logger.error(f"ChatGPT analysis error: {str(e)}")
-            return self._generate_fallback_analysis()
+            return self._generate_fallback_analysis() + " (Error)"
 
     def _generate_fallback_analysis(self) -> str:
         """Generate fallback analysis when ChatGPT is unavailable"""
@@ -514,26 +535,15 @@ class RealTimeMarketAnalyzer:
             digit_counts = Counter(digits)
             total_digits = len(digits)
             
-            entropy = -sum((count / total_digits) * log2(count / total_digits) for count in digit_counts.values())
-            return entropy
-        except:
+            # Low randomness if any digit dominates, high randomness if uniform distribution
+            dominance_factor = max(digit_counts.values()) / total_digits
+            return (1 - dominance_factor) * 100
+        except Exception:
             return 0.0
-
-    def _calculate_randomness_score(self, digits: List[int]) -> float:
-        """Calculate randomness score based on digit sequence"""
-        from collections import Counter
-        
-        digit_counts = Counter(digits)
-        total_digits = len(digits)
-        
-        # Low randomness if any digit dominates, high randomness if uniform distribution
-        dominance_factor = max(digit_counts.values()) / total_digits
-        return (1 - dominance_factor) * 100
-
     def get_latest_analysis(self) -> Dict:
         """Get the latest analysis results"""
         return self.last_analysis
-
+    
     def subscribe_to_analysis(self, callback):
         """Subscribe to real-time analysis updates"""
         self.subscribers.append(callback)
@@ -579,7 +589,7 @@ class RealTimeMarketAnalyzer:
         """Calculate trend strength indicator"""
         if len(prices) < 10:
             return 0.0
-        
+            
         # Calculate linear regression slope
         x = np.arange(len(prices))
         slope = np.polyfit(x, prices, 1)[0]

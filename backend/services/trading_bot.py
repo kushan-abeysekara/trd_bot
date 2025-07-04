@@ -1,18 +1,15 @@
-import asyncio
 import websocket
 import json
 import threading
 import time
 import logging
+import numpy as np
 from datetime import datetime, timedelta
 from collections import deque
-import numpy as np
-from typing import Dict, List, Optional, Callable
+import random
+from typing import Dict, Optional, List
 from dataclasses import dataclass, asdict
 from enum import Enum
-import random
-
-from .market_analyzer import market_analyzer
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -20,17 +17,10 @@ logger = logging.getLogger(__name__)
 @dataclass
 class BotSettings:
     selected_market: str = 'volatility_10_1s'
-    auto_stake_enabled: bool = True
-    auto_stake: float = 1.0
-    manual_stake: float = 1.0
-    max_stake: float = 10.0
-    min_stake: float = 0.35
-    stake_percentage: float = 10.0
+    stake: float = 1.0
+    trade_interval: int = 7  # seconds between trades (random between 5-10)
     daily_stop_loss: float = 50.0
     daily_target: float = 20.0
-    max_concurrent_trades: int = 3
-    cooldown_period: int = 5
-    strategy_mode: str = 'ADAPTIVE'  # ADAPTIVE, AGGRESSIVE, CONSERVATIVE
 
 class TradeDirection(Enum):
     RISE = "RISE"
@@ -43,15 +33,9 @@ class TradeStatus(Enum):
     LOST = "LOST"
     CANCELLED = "CANCELLED"
 
-class StrategyType(Enum):
-    ADAPTIVE_MEAN_REVERSION = "ADAPTIVE_MEAN_REVERSION"
-    TREND_FOLLOWING = "TREND_FOLLOWING"
-    MOMENTUM_BREAKOUT = "MOMENTUM_BREAKOUT"
-
 @dataclass
 class Trade:
     id: str
-    strategy: str
     symbol: str
     direction: TradeDirection
     stake: float
@@ -78,37 +62,43 @@ class TradingBot:
         
         # Market data
         self.current_price = 0.0
-        self.price_history = deque(maxlen=500)
-        self.tick_data = deque(maxlen=100)
-        
-        # Technical indicators
-        self.rsi = 50.0
-        self.macd = {"macd": 0, "signal": 0, "histogram": 0}
-        self.bollinger_bands = {"upper": 0, "middle": 0, "lower": 0}
-        self.momentum = 0.0
-        self.volatility = 0.0
-        
-        # Strategy state
-        self.current_strategy = "Adaptive Mean Reversion Rebound"
-        self.strategy_status = "Monitoring"
-        self.last_signal_time = None
+        self.price_history = deque(maxlen=100)
+        self.tick_data = deque(maxlen=20)
         
         # Performance tracking
         self.daily_profit = 0.0
         self.daily_loss = 0.0
         self.total_trades_today = 0
+        self.wins_today = 0
+        self.losses_today = 0
         self.win_rate = 0.0
         self.account_balance = 1000.0
         
         # WebSocket and threading
         self.ws = None
         self.ws_thread = None
-        self.analysis_thread = None
+        self.trading_thread = None
         self.subscribers = []
         
         # Trade execution
         self.last_trade_time = None
-        self.trade_cooldown = 2  # seconds between trades
+        self.last_direction = None
+        
+        # Initialize technical indicators
+        self.rsi = 50.0
+        self.macd = {'macd': 0, 'signal': 0, 'histogram': 0}
+        self.macd_history = deque(maxlen=100)
+        self.bollinger_bands = {'upper': 0, 'middle': 0, 'lower': 0}
+        self.momentum = 0.0
+        self.volatility = 0.0
+        
+        # Strategy tracking - Fix for missing attribute
+        self.active_strategies = {}
+        self.strategy_stats = {}
+        self.strategy_trades = {}
+        
+        # Initialize strategies
+        self._initialize_strategies()
 
     def start_trading(self):
         """Start the trading bot"""
@@ -122,10 +112,10 @@ class TradingBot:
         # Start market data feed
         self._start_market_data_feed()
         
-        # Start analysis thread
-        self.analysis_thread = threading.Thread(target=self._analysis_loop)
-        self.analysis_thread.daemon = True
-        self.analysis_thread.start()
+        # Start trading thread
+        self.trading_thread = threading.Thread(target=self._trading_loop)
+        self.trading_thread.daemon = True
+        self.trading_thread.start()
         
         # Notify subscribers
         self._notify_subscribers({
@@ -155,6 +145,10 @@ class TradingBot:
         # Stop WebSocket connection
         if self.ws:
             self.ws.close()
+        
+        # Reset state
+        self.last_trade_time = None
+        self.last_direction = None
         
         # Notify subscribers
         self._notify_subscribers({
@@ -194,8 +188,8 @@ class TradingBot:
         def mock_data_generator():
             base_price = 1.12345
             while self.is_running:
-                # Generate realistic price movement
-                change = np.random.normal(0, 0.0001)
+                # Generate realistic price movement (simple random walk)
+                change = (random.random() - 0.5) * 0.0002
                 base_price += change
                 
                 tick_data = {
@@ -212,10 +206,11 @@ class TradingBot:
         mock_thread.start()
 
     def _websocket_connection(self):
-        """WebSocket connection to Deriv API"""
+        """Establish WebSocket connection to Deriv API"""
         def on_message(ws, message):
             try:
                 data = json.loads(message)
+                
                 if 'tick' in data:
                     tick_data = {
                         'price': data['tick']['quote'],
@@ -223,6 +218,58 @@ class TradingBot:
                         'symbol': data['tick']['symbol']
                     }
                     self._process_tick_data(tick_data)
+                elif 'buy' in data:
+                    # Handle buy response (trade confirmation)
+                    logger.info(f"Received buy confirmation: {data}")
+                    
+                    # Extract trade_id from passthrough
+                    if 'passthrough' in data and 'trade_id' in data['passthrough']:
+                        trade_id = data['passthrough']['trade_id']
+                        
+                        # Update the trade with contract details
+                        if trade_id in self.active_trades:
+                            trade = self.active_trades[trade_id]
+                            trade.contract_id = data['buy']['contract_id']
+                            trade.status = TradeStatus.ACTIVE
+                            
+                            logger.info(f"Trade {trade_id} confirmed with contract ID: {trade.contract_id}")
+                    else:
+                        logger.warning("Received buy response without trade_id")
+                elif 'proposal_open_contract' in data:
+                    # Handle contract updates
+                    contract = data['proposal_open_contract']
+                    contract_id = str(contract['contract_id'])
+                    
+                    # Find the trade by contract_id
+                    for trade_id, trade in self.active_trades.items():
+                        if trade.contract_id == contract_id:
+                            # Update trade details
+                            if contract['is_sold'] == 1:
+                                # Contract is finished
+                                profit = float(contract['profit'])
+                                trade.profit_loss = profit
+                                trade.exit_price = float(contract['exit_tick'] or 0)
+                                trade.exit_time = datetime.utcnow()
+                                trade.status = TradeStatus.WON if profit > 0 else TradeStatus.LOST
+                                
+                                # Update stats
+                                if profit > 0:
+                                    self.daily_profit += profit
+                                    self.wins_today += 1
+                                else:
+                                    self.daily_loss += abs(profit)
+                                    self.losses_today += 1
+                                
+                                self.total_trades_today += 1
+                                self._update_win_rate()
+                                
+                                # Move to history
+                                self._move_trade_to_history(trade_id)
+                                
+                                logger.info(f"Trade {trade_id} completed with P&L: ${profit}")
+                            
+
+                            break
             except Exception as e:
                 logger.error(f"WebSocket message error: {e}")
         
@@ -236,6 +283,14 @@ class TradingBot:
         def on_open(ws):
             logger.info("WebSocket connection opened")
             self.is_connected = True
+            
+            # Authenticate with API token
+            if self.api_token:
+                auth_msg = {
+                    "authorize": self.api_token
+                }
+                ws.send(json.dumps(auth_msg))
+                logger.info("Authentication message sent")
             
             # Subscribe to tick data
             subscribe_msg = {
@@ -262,12 +317,6 @@ class TradingBot:
         self.tick_data.append(tick_data)
         self.price_history.append(tick_data['price'])
         
-        # Add to market analyzer
-        market_analyzer.add_price_data(tick_data['price'], tick_data['timestamp'])
-        
-        # Update technical indicators
-        self._update_technical_indicators()
-        
         # Notify subscribers of price update
         self._notify_subscribers({
             'type': 'price_update',
@@ -290,6 +339,7 @@ class TradingBot:
         
         # MACD
         self.macd = self._calculate_macd(prices)
+        self.macd_history.append(self.macd.copy())
         
         # Bollinger Bands
         self.bollinger_bands = self._calculate_bollinger_bands(prices, 20, 2)
@@ -300,147 +350,152 @@ class TradingBot:
         # Volatility
         self.volatility = self._calculate_volatility(prices)
 
-    def _analysis_loop(self):
-        """Main analysis and trading loop"""
+    def _trading_loop(self):
+        """Main fast tick trading loop - executes trades every 5-10 seconds"""
         while self.is_running:
             try:
-                if len(self.price_history) >= 50:
-                    # Check for trading signals
-                    signal = self._check_trading_signals()
+                # Wait until we have price data
+                if len(self.price_history) >= 5:
+                    current_time = time.time()
                     
-                    if signal and self._can_place_trade():
-                        self._execute_trade(signal)
-                
-                # Update strategy status
-                self._update_strategy_status()
+                    # Only place a trade after the interval has passed (5-10 seconds)
+                    if (self.last_trade_time is None or 
+                        (current_time - self.last_trade_time) >= random.randint(5, 10)):
+                        
+                        self._place_next_trade()
+                        self.last_trade_time = current_time
                 
                 time.sleep(0.1)  # Check every 100ms
                 
             except Exception as e:
-                logger.error(f"Analysis loop error: {e}")
+                logger.error(f"Trading loop error: {e}")
                 time.sleep(1)
 
-    def _check_trading_signals(self):
-        """Check for trading signals using Adaptive Mean Reversion strategy"""
-        if self.current_strategy != "Adaptive Mean Reversion Rebound":
-            return None
-        
-        # Adaptive Mean Reversion Rebound Strategy
-        # Conditions: RSI 48-52, Volatility 1-1.5%, Price touches Bollinger Band, Momentum < ±0.2%
-        
-        # Check RSI condition
-        if not (48 <= self.rsi <= 52):
-            return None
-        
-        # Check volatility condition (1-1.5%)
-        volatility_percent = self.volatility * 100
-        if not (1.0 <= volatility_percent <= 1.5):
-            return None
-        
-        # Check momentum condition (< ±0.2%)
-        momentum_percent = abs(self.momentum * 100)
-        if momentum_percent >= 0.2:
-            return None
-        
-        # Check MACD flat condition (-0.1 to +0.1)
-        if not (-0.1 <= self.macd['macd'] <= 0.1):
-            return None
-        
-        # Check Bollinger Band touches
-        price_distance_upper = abs(self.current_price - self.bollinger_bands['upper'])
-        price_distance_lower = abs(self.current_price - self.bollinger_bands['lower'])
-        
-        band_threshold = (self.bollinger_bands['upper'] - self.bollinger_bands['lower']) * 0.02
-        
-        signal = None
-        
-        # Touch lower band → Buy Rise (after 1 green tick)
-        if price_distance_lower <= band_threshold:
-            if self._detect_green_tick():
-                signal = {
-                    'direction': TradeDirection.RISE,
-                    'confidence': 75,
-                    'reason': 'Lower BB touch + Green tick',
-                    'entry_price': self.current_price
-                }
-        
-        # Touch upper band → Buy Fall (after 1 red tick)
-        elif price_distance_upper <= band_threshold:
-            if self._detect_red_tick():
-                signal = {
-                    'direction': TradeDirection.FALL,
-                    'confidence': 75,
-                    'reason': 'Upper BB touch + Red tick',
-                    'entry_price': self.current_price
-                }
-        
-        return signal
-
-    def _detect_green_tick(self):
-        """Detect green tick (price increase)"""
-        if len(self.tick_data) < 2:
-            return False
-        
-        current_tick = self.tick_data[-1]
-        previous_tick = self.tick_data[-2]
-        
-        return current_tick['price'] > previous_tick['price']
-
-    def _detect_red_tick(self):
-        """Detect red tick (price decrease)"""
-        if len(self.tick_data) < 2:
-            return False
-        
-        current_tick = self.tick_data[-1]
-        previous_tick = self.tick_data[-2]
-        
-        return current_tick['price'] < previous_tick['price']
-
-    def _can_place_trade(self):
-        """Check if we can place a new trade"""
-        # Check daily limits
-        if abs(self.daily_loss) >= self.settings.daily_stop_loss:
-            return False
-        
-        if self.daily_profit >= self.settings.daily_target:
-            return False
-        
-        # Check concurrent trades limit
-        if len(self.active_trades) >= self.settings.max_concurrent_trades:
-            return False
-        
-        # Check trade cooldown
-        if self.last_trade_time:
-            time_since_last = (datetime.utcnow() - self.last_trade_time).total_seconds()
-            if time_since_last < self.trade_cooldown:
-                return False
-        
-        return True
-
-    def _execute_trade(self, signal):
-        """Execute a trade based on signal"""
+    def _place_next_trade(self):
+        """Place the next trade based on simple tick analysis"""
         try:
+            if len(self.price_history) < 5:
+                logger.warning("Not enough price data to make a trade decision")
+                return
+                
+            # Get the latest price data
+            current_price = self.price_history[-1]
+            previous_price = self.price_history[-2]
+            
+            # Alternate between RISE and FALL for consistent trading
+            direction = None
+            
+            # Simple tick analysis: alternating pattern for fast trading
+            if self.last_direction == TradeDirection.RISE:
+                direction = TradeDirection.FALL
+            elif self.last_direction == TradeDirection.FALL:
+                direction = TradeDirection.RISE
+            else:
+                # First trade or after reset - decide based on current tick direction
+                direction = TradeDirection.RISE if current_price > previous_price else TradeDirection.FALL
+            
+            # Store the direction for next trade
+            self.last_direction = direction
+            
             # Calculate stake
-            stake = self._calculate_stake()
+            stake = self.settings.stake
             
             # Create trade
+            trade_id = f"trade_{int(time.time() * 1000)}"
+            
             trade = Trade(
-                id=f"trade_{int(time.time() * 1000)}",
-                strategy=self.current_strategy,
-                symbol="R_10",
-                direction=signal['direction'],
+                id=trade_id,
+                symbol=self.settings.selected_market,
+                direction=direction,
                 stake=stake,
-                entry_price=signal['entry_price'],
+                entry_price=current_price,
                 entry_time=datetime.utcnow(),
-                duration=6,  # 5-7 seconds for mean reversion
+                duration=5,  # 5-second trades for fast trading
                 status=TradeStatus.ACTIVE
             )
             
             # Add to active trades
             self.active_trades[trade.id] = trade
             
+            # Update total trades count
+            self.total_trades_today += 1
+            
+            # Notify subscribers
+            self._notify_subscribers({
+                'type': 'new_trade',
+                'data': asdict(trade)
+            })
+            
+            logger.info(f"Fast trade executed: {trade.id} - {direction.value} - ${stake}")
+            
             # Schedule trade closure
             threading.Timer(trade.duration, self._close_trade, args=[trade.id]).start()
+            
+        except Exception as e:
+            logger.error(f"Error placing next trade: {e}")
+
+    def _execute_trade(self, signal):
+        """Execute a trade based on signal"""
+        try:
+            # Check if we have a valid API token
+            if not self.api_token:
+                logger.error("Cannot execute trade: No API token available")
+                return
+                
+            # Calculate stake
+            stake = self._calculate_stake()
+            
+            # Create trade object locally
+            trade_id = f"trade_{int(time.time() * 1000)}"
+            trade = Trade(
+                id=trade_id,
+                symbol="R_10",
+                direction=signal['direction'],
+                stake=stake,
+                entry_price=signal['entry_price'],
+                entry_time=datetime.utcnow(),
+                duration=signal.get('duration', 6),  # Use signal duration or default to 6 seconds
+                status=TradeStatus.PENDING
+            )
+            
+            # Add to active trades
+            self.active_trades[trade.id] = trade
+            
+            # IMPORTANT: Send the trade to Deriv API
+            if self.ws and self.is_connected:
+                # Prepare the contract request
+                contract_type = "CALL" if trade.direction == TradeDirection.RISE else "PUT"
+                duration_unit = "s"  # seconds
+                
+                # Create the buy request
+                buy_request = {
+                    "buy": 1,
+                    "price": stake,
+                    "parameters": {
+                        "contract_type": contract_type,
+                        "currency": "USD",  # Should use account currency
+                        "duration": trade.duration,
+                        "duration_unit": duration_unit,
+                        "symbol": trade.symbol,
+                    },
+                    "passthrough": {
+                        "trade_id": trade.id
+                    }
+                }
+                
+                # Send buy request
+                try:
+                    self.ws.send(json.dumps(buy_request))
+                    logger.info(f"Buy request sent to Deriv API for trade: {trade.id}")
+                    
+                    # Update trade status to ACTIVE
+                    trade.status = TradeStatus.ACTIVE
+                except Exception as e:
+                    logger.error(f"Failed to send buy request to Deriv API: {e}")
+                    trade.status = TradeStatus.CANCELLED
+            else:
+                # If we're not connected to Deriv API, mark as simulated
+                logger.warning(f"Simulated trade only (no API connection): {trade.id}")
             
             # Update last trade time
             self.last_trade_time = datetime.utcnow()
@@ -452,6 +507,10 @@ class TradingBot:
             })
             
             logger.info(f"Trade executed: {trade.id} - {trade.direction.value} - ${trade.stake}")
+            
+            # If trade is active, schedule closure
+            if trade.status == TradeStatus.ACTIVE:
+                threading.Timer(trade.duration, self._close_trade, args=[trade.id]).start()
             
         except Exception as e:
             logger.error(f"Trade execution error: {e}")
@@ -483,10 +542,12 @@ class TradingBot:
                 trade.payout = trade.stake * 1.8  # 80% payout
                 trade.profit_loss = trade.payout - trade.stake
                 self.daily_profit += trade.profit_loss
+                self.wins_today += 1
             else:
                 trade.status = TradeStatus.LOST
                 trade.profit_loss = -trade.stake
                 self.daily_loss += abs(trade.profit_loss)
+                self.losses_today += 1
         
         # Move to history
         self.trade_history.appendleft(trade)
@@ -494,6 +555,14 @@ class TradingBot:
         
         # Update statistics
         self._update_statistics()
+        
+        # Notify subscribers about the closed trade
+        self._notify_subscribers({
+            'type': 'trade_closed',
+            'data': asdict(trade)
+        })
+        
+        logger.info(f"Trade closed: {trade.id} - Status: {trade.status.value} - P&L: ${trade.profit_loss:.2f}")
         
         # Notify subscribers
         self._notify_subscribers({
@@ -515,49 +584,54 @@ class TradingBot:
         return round(auto_stake, 2)
 
     def _update_statistics(self):
-        """Update trading statistics"""
+        """Update trading statistics for fast trading"""
         if not self.trade_history:
             return
         
-        # Calculate win rate
-        recent_trades = list(self.trade_history)[:50]  # Last 50 trades
-        wins = sum(1 for trade in recent_trades if trade.status == TradeStatus.WON)
-        total = len(recent_trades)
-        
-        self.win_rate = (wins / total * 100) if total > 0 else 0
+        # Calculate win rate from today's trades
+        total_today = self.wins_today + self.losses_today
+        self.win_rate = (self.wins_today / total_today * 100) if total_today > 0 else 0
         
         # Update account balance (simplified)
         net_profit = self.daily_profit - abs(self.daily_loss)
         self.account_balance = 1000.0 + net_profit  # Starting balance + net profit
+        
+        # Check daily stop loss or target
+        if abs(self.daily_loss) >= self.settings.daily_stop_loss:
+            logger.warning("Daily stop loss reached. Stopping trading.")
+            self.stop_trading()
+            
+        if self.daily_profit >= self.settings.daily_target:
+            logger.info("Daily profit target reached. Stopping trading.")
+            self.stop_trading()
 
-    def _update_strategy_status(self):
-        """Update strategy status"""
+    def _can_place_trade(self):
+        """Check if we can place a new trade based on settings and conditions"""
+        # Check if bot is running
         if not self.is_running:
-            self.strategy_status = "Stopped"
-        elif len(self.price_history) < 50:
-            self.strategy_status = "Gathering Data"
-        elif not self._can_place_trade():
-            if abs(self.daily_loss) >= self.settings.daily_stop_loss:
-                self.strategy_status = "Daily Stop Loss Hit"
-            elif self.daily_profit >= self.settings.daily_target:
-                self.strategy_status = "Daily Target Reached"
-            elif len(self.active_trades) >= self.settings.max_concurrent_trades:
-                self.strategy_status = "Max Trades Active"
-            else:
-                self.strategy_status = "Cooldown"
-        else:
-            # Check strategy conditions
-            if 48 <= self.rsi <= 52:
-                volatility_ok = 1.0 <= (self.volatility * 100) <= 1.5
-                momentum_ok = abs(self.momentum * 100) < 0.2
-                macd_ok = -0.1 <= self.macd['macd'] <= 0.1
-                
-                if volatility_ok and momentum_ok and macd_ok:
-                    self.strategy_status = "Waiting for BB Touch"
-                else:
-                    self.strategy_status = "Monitoring Conditions"
-            else:
-                self.strategy_status = "RSI Out of Range"
+            return False
+
+        # Check if we have enough data
+        if len(self.price_history) < 50:
+            return False
+            
+        # Check if we've reached maximum concurrent trades
+        if len(self.active_trades) >= self.settings.max_concurrent_trades:
+            return False
+            
+        # Check if we're in cooldown period
+        if self.last_trade_time and (datetime.utcnow() - self.last_trade_time).total_seconds() < self.trade_cooldown:
+            return False
+            
+        # Check daily loss limit
+        if self.daily_loss >= self.settings.daily_stop_loss:
+            return False
+            
+        # Check daily target reached
+        if self.daily_profit >= self.settings.daily_target:
+            return False
+            
+        return True
 
     # Technical indicator calculations
     def _calculate_rsi(self, prices, period=14):
@@ -654,28 +728,36 @@ class TradingBot:
             self.subscribers.remove(callback)
 
     def _notify_subscribers(self, message):
-        """Notify all subscribers"""
-        for callback in self.subscribers:
+        """Notify all subscribers with a message"""
+        # Add strategy stats to the message if it doesn't already include them
+        if message['type'] in ['bot_status', 'price_update'] and 'strategy_stats' not in message['data']:
+            message['data']['strategy_stats'] = self.get_strategy_stats()
+            message['data']['active_strategies'] = self.active_strategies
+        
+        for subscriber in self.subscribers:
             try:
-                callback(message)
+                subscriber(message)
             except Exception as e:
-                logger.error(f"Subscriber notification error: {e}")
+                logger.error(f"Error notifying subscriber: {e}")
 
     # Public API methods
     def get_status(self):
-        """Get current bot status"""
+        """Get current bot status for fast trading bot"""
         return {
             'is_running': self.is_running,
             'is_connected': self.is_connected,
-            'current_strategy': self.current_strategy,
-            'strategy_status': self.strategy_status,
             'active_trades_count': len(self.active_trades),
             'current_price': self.current_price,
             'account_balance': self.account_balance,
             'daily_profit': self.daily_profit,
             'daily_loss': self.daily_loss,
             'win_rate': self.win_rate,
-            'settings': asdict(self.settings)
+            'total_trades_today': self.total_trades_today,
+            'wins_today': self.wins_today,
+            'losses_today': self.losses_today,
+            'settings': asdict(self.settings),
+            'last_trade_time': self.last_trade_time,
+            'last_direction': self.last_direction.value if self.last_direction else None
         }
 
     def get_active_trades(self):
@@ -684,8 +766,41 @@ class TradingBot:
 
     def get_trade_history(self, limit=50):
         """Get trade history"""
-        trades = list(self.trade_history)[:limit]
-        return [asdict(trade) for trade in trades]
+        try:
+            # Check if trade history is initialized
+            if not hasattr(self, 'trade_history') or self.trade_history is None:
+                logger.warning("Trade history not initialized, returning empty list")
+                return []
+            
+            # Convert deque to list and limit the number of records
+            trades = list(self.trade_history)[:limit]
+            
+            # Convert each trade object to a dictionary for JSON serialization
+            trade_dicts = []
+            for trade in trades:
+                try:
+                    # Handle different types of trade objects
+                    if hasattr(trade, '__dict__'):
+                        # For class instances, use asdict if possible
+                        trade_dict = asdict(trade)
+                    elif isinstance(trade, dict):
+                        # Already a dict
+                        trade_dict = trade
+                    else:
+                        # Convert to string representation as fallback
+                        logger.warning(f"Unknown trade object type: {type(trade)}")
+                        trade_dict = {"id": str(id(trade)), "data": str(trade)}
+                    
+                    trade_dicts.append(trade_dict)
+                except Exception as e:
+                    logger.error(f"Error processing trade history record: {e}")
+            
+            logger.info(f"Returning {len(trade_dicts)} trade history records")
+            return trade_dicts
+            
+        except Exception as e:
+            logger.error(f"Error getting trade history: {e}")
+            return []
 
     def update_settings(self, new_settings):
         """Update trading settings"""
@@ -792,5 +907,227 @@ class TradingBot:
             logger.error(f"Failed to set API token: {e}")
             return {'success': False, 'message': f'Failed to set API token: {str(e)}'}
 
-# Global trading bot instance
+    def set_strategy(self, strategy_id):
+        """Set the current trading strategy by ID"""
+        strategies = self.get_available_strategies()
+        for strategy in strategies:
+            if strategy['id'] == strategy_id:
+                self.current_strategy = strategy['name']
+                return {'success': True, 'message': f'Strategy set to {strategy["name"]}'}
+                
+        return {'success': False, 'message': f'Strategy with ID {strategy_id} not found'}
+
+    def get_available_strategies(self):
+        """Get a list of all available trading strategies"""
+        return [
+            {
+                'id': 1,
+                'name': 'Adaptive Mean Reversion Rebound',
+                'description': 'Trade reversions from Bollinger Bands with strict filters',
+                'risk_level': 'low',
+                'timeframe': '5-7 seconds'
+            },
+            {
+                'id': 2,
+                'name': 'Micro-Trend Momentum Tracker',
+                'description': 'Ride micro-trends driven by consistent direction and minor momentum',
+                'risk_level': 'medium',
+                'timeframe': '6-10 seconds'
+            },
+            {
+                'id': 3,
+                'name': 'RSI-Tick Divergence Detector',
+                'description': 'Spot reversals when indicator and price ticks diverge',
+                'risk_level': 'medium',
+                'timeframe': '5 seconds'
+            },
+            {
+                'id': 4,
+                'name': 'Volatility Spike Fader',
+                'description': 'Fade short bursts of volatility after deviation from the mean',
+                'risk_level': 'medium',
+                'timeframe': '5-8 seconds'
+            },
+            {
+                'id': 5,
+                'name': 'Tick Flow Strength Pulse',
+                'description': 'Exploit strong directional tick flow for micro breakout trades',
+                'risk_level': 'medium-high',
+                'timeframe': '5 seconds'
+            },
+            {
+                'id': 6,
+                'name': 'Double Confirmation Breakout',
+                'description': 'Filter breakout trades using MACD crossover + EMA slope',
+                'risk_level': 'medium',
+                'timeframe': '6-8 seconds'
+            },
+            {
+                'id': 7,
+                'name': 'RSI Overextension Fade',
+                'description': 'Trade reversals from RSI overbought or oversold zones',
+                'risk_level': 'medium',
+                'timeframe': '5-7 seconds'
+            },
+            {
+                'id': 8,
+                'name': 'Multi-Tick Pivot Bounce',
+                'description': 'Detect reversal from localized price pivots',
+                'risk_level': 'medium',
+                'timeframe': '5 seconds'
+            },
+            {
+                'id': 9,
+                'name': 'MACD-Momentum Sync Engine',
+                'description': 'Trade only when MACD and momentum confirm each other',
+                'risk_level': 'medium',
+                'timeframe': '6-10 seconds'
+            },
+            {
+                'id': 10,
+                'name': 'Time-of-Tick Scalper',
+                'description': 'Use timing between ticks to detect fast or slow market surges',
+                'risk_level': 'high',
+                'timeframe': '6 seconds'
+            },
+            {
+                'id': 11,
+                'name': 'Volatility Collapse Compression',
+                'description': 'Anticipate breakouts after tight price compression',
+                'risk_level': 'medium-high',
+                'timeframe': '7 seconds'
+            },
+            {
+                'id': 12,
+                'name': 'Two-Step Confirmation Model',
+                'description': 'Require sequential indicator agreement before trade',
+                'risk_level': 'low',
+                'timeframe': '6-10 seconds'
+            },
+            {
+                'id': 13,
+                'name': 'Inverted Divergence Flip',
+                'description': 'Use inverse divergence signals when MACD and price disagree',
+                'risk_level': 'high',
+                'timeframe': '5 seconds'
+            },
+            {
+                'id': 14,
+                'name': 'Cumulative Strength Index Pullback',
+                'description': 'Trade minor pullbacks in strong micro-trends',
+                'risk_level': 'medium',
+                'timeframe': '6-8 seconds'
+            },
+            {
+                'id': 15,
+                'name': 'Tri-Indicator Confluence Strategy',
+                'description': 'Enter only when RSI, MACD, and Momentum all align',
+                'risk_level': 'low',
+                'timeframe': '7-10 seconds'
+            }
+        ]
+        
+    def get_strategy_details(self, strategy_id):
+        """Get details for a specific strategy by ID"""
+        strategies = self.get_available_strategies()
+        for strategy in strategies:
+            if strategy['id'] == strategy_id:
+                return strategy
+        return None
+
+    def set_strategy_status(self, strategy_id, active=True):
+        """Enable or disable a specific strategy"""
+        try:
+            if strategy_id in self.active_strategies:
+                self.active_strategies[strategy_id] = active
+                status = "Active" if active else "Inactive"
+                self.strategy_stats[strategy_id]['status'] = status
+                
+                logger.info(f"Strategy {strategy_id} set to {status}")
+                return {
+                    'success': True, 
+                    'message': f'Strategy {strategy_id} is now {status.lower()}'
+                }
+            else:
+                return {
+                    'success': False, 
+                    'message': f'Strategy with ID {strategy_id} not found'
+                }
+        except Exception as e:
+            logger.error(f"Error setting strategy status: {e}")
+            return {'success': False, 'message': f'Error: {str(e)}'}
+
+    def get_strategy_stats(self):
+        """Get statistics for all strategies"""
+        # Ensure strategy_stats is initialized
+        if not hasattr(self, 'strategy_stats') or self.strategy_stats is None:
+            self.strategy_stats = {}
+            strategies = self.get_available_strategies()
+            for strategy in strategies:
+                strategy_id = strategy['id']
+                self.strategy_stats[strategy_id] = {
+                    'trades': 0,
+                    'wins': 0,
+                    'losses': 0,
+                    'win_rate': 0.0,
+                    'profit': 0.0,
+                    'status': 'Inactive',
+                    'last_signal_time': None
+                }
+        
+        return self.strategy_stats
+
+    def get_strategy_trades(self, strategy_id=None):
+        """Get trades for a specific strategy or all strategies"""
+        if strategy_id is not None:
+            # Return trades for this specific strategy
+            return self.strategy_trades.get(strategy_id, [])
+        else:
+            # Return all trades grouped by strategy
+            return self.strategy_trades
+
+    def _initialize_strategies(self):
+        """Initialize available strategies and their tracking data"""
+        # Get all available strategies
+        strategies = self.get_available_strategies()
+        
+        # Initialize active_strategies dictionary if not already present
+        if not hasattr(self, 'active_strategies') or self.active_strategies is None:
+            self.active_strategies = {}
+        
+        # Initialize strategy_stats dictionary if not already present
+        if not hasattr(self, 'strategy_stats') or self.strategy_stats is None:
+            self.strategy_stats = {}
+            
+        # Initialize strategy_trades dictionary if not already present
+        if not hasattr(self, 'strategy_trades') or self.strategy_trades is None:
+            self.strategy_trades = {}
+            
+        # Setup tracking for each available strategy
+        for strategy in strategies:
+            strategy_id = strategy['id']
+            
+            # Set default activation status (only first strategy active by default)
+            if strategy_id not in self.active_strategies:
+                self.active_strategies[strategy_id] = (strategy_id == 1)
+                
+            # Initialize statistics tracking
+            if strategy_id not in self.strategy_stats:
+                self.strategy_stats[strategy_id] = {
+                    'trades': 0,
+                    'wins': 0,
+                    'losses': 0,
+                    'win_rate': 0.0,
+                    'profit': 0.0,
+                    'status': 'Inactive',
+                    'last_signal_time': None
+                }
+                
+            # Initialize trade history tracking
+            if strategy_id not in self.strategy_trades:
+                self.strategy_trades[strategy_id] = []
+                
+        logger.info(f"Initialized {len(strategies)} trading strategies")
+
+# Create a singleton instance of the TradingBot
 trading_bot = TradingBot()

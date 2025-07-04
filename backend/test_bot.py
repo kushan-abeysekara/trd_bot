@@ -18,6 +18,45 @@ def setup_and_test_bot():
     print("🚀 Trading Bot Quick Setup")
     print("=" * 40)
     
+    # 0. Ensure required attributes are initialized
+    print("\n0. Checking bot initialization...")
+    
+    # Ensure strategy_stats is initialized
+    if not hasattr(trading_bot, 'strategy_stats') or trading_bot.strategy_stats is None:
+        print("   - Initializing missing strategy_stats")
+        trading_bot.strategy_stats = {}
+        strategies = trading_bot.get_available_strategies()
+        for strategy in strategies:
+            strategy_id = strategy['id']
+            trading_bot.strategy_stats[strategy_id] = {
+                'trades': 0,
+                'wins': 0,
+                'losses': 0,
+                'win_rate': 0.0,
+                'profit': 0.0,
+                'status': 'Inactive',
+                'last_signal_time': None
+            }
+    
+    # Ensure active_strategies is initialized
+    if not hasattr(trading_bot, 'active_strategies') or trading_bot.active_strategies is None:
+        print("   - Initializing missing active_strategies")
+        trading_bot.active_strategies = {}
+        strategies = trading_bot.get_available_strategies()
+        for strategy in strategies:
+            trading_bot.active_strategies[strategy['id']] = False
+        # Enable the first strategy by default
+        if strategies:
+            trading_bot.active_strategies[strategies[0]['id']] = True
+    
+    # Ensure strategy_trades is initialized
+    if not hasattr(trading_bot, 'strategy_trades') or trading_bot.strategy_trades is None:
+        print("   - Initializing missing strategy_trades")
+        trading_bot.strategy_trades = {}
+        strategies = trading_bot.get_available_strategies()
+        for strategy in strategies:
+            trading_bot.strategy_trades[strategy['id']] = []
+    
     # 1. Set up mock API token
     print("\n1. Setting up mock API token...")
     mock_api_token = "DEMO123456789"
