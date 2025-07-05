@@ -4,6 +4,7 @@ from flask_socketio import SocketIO, emit
 import threading
 import time
 from trading_bot import TradingBot
+import config
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'deriv-trading-bot-secret'
@@ -95,12 +96,18 @@ def connect_api():
 def start_trading():
     """Start automated trading"""
     global bot_instance
+    from config import MIN_TRADE_AMOUNT, DEFAULT_TRADE_AMOUNT
     
     if not bot_instance:
         return jsonify({'error': 'Not connected to API'}), 400
         
     data = request.get_json()
-    amount = float(data.get('amount', 1.0))
+    amount = float(data.get('amount', DEFAULT_TRADE_AMOUNT))
+    
+    # Validate minimum trade amount
+    if amount < MIN_TRADE_AMOUNT:
+        return jsonify({'error': f'Trade amount must be at least ${MIN_TRADE_AMOUNT}'}), 400
+        
     duration = int(data.get('duration', 5))
     
     try:

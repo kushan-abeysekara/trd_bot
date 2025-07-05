@@ -5,14 +5,15 @@ from datetime import datetime
 from typing import Dict, Any, List
 from deriv_api import DerivAPI
 from strategy_engine import StrategyEngine, TradeSignal
+import config
 
 
 class TradingBot:
     def __init__(self, api_token: str):
         self.api = DerivAPI(api_token)
         self.is_running = False
-        self.trade_amount = 1.0
-        self.duration_ticks = 5
+        self.trade_amount = config.DEFAULT_TRADE_AMOUNT
+        self.duration_ticks = config.DEFAULT_DURATION_TICKS
         self.trade_history = []
         self.stats = {
             'total_trades': 0,
@@ -69,6 +70,10 @@ class TradingBot:
         
     def start_trading(self, amount: float, duration: int):
         """Start automated trading"""
+        # Validate minimum trade amount
+        if amount < config.MIN_TRADE_AMOUNT:
+            raise ValueError(f"Trade amount must be at least ${config.MIN_TRADE_AMOUNT}")
+            
         self.trade_amount = amount
         self.duration_ticks = duration
         self.is_running = True

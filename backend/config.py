@@ -2,6 +2,7 @@
 
 # Trading Settings
 DEFAULT_TRADE_AMOUNT = 1.0
+MIN_TRADE_AMOUNT = 0.35  # Minimum allowed trade amount in USD
 DEFAULT_DURATION_TICKS = 5
 TRADE_INTERVAL_SECONDS = 30
 

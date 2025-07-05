@@ -9,7 +9,7 @@ function App() {
   const [isTrading, setIsTrading] = useState(false);
   const [balance, setBalance] = useState(0);
   const balanceRef = useRef(0); // Keep a ref for balance comparisons
-  const [tradeAmount, setTradeAmount] = useState(1);
+  const [tradeAmount, setTradeAmount] = useState(0.35); // Minimum allowed trade amount
   const [duration, setDuration] = useState(5);
   const [stats, setStats] = useState({
     total_trades: 0,
@@ -383,9 +383,9 @@ function App() {
                   type="number"
                   id="tradeAmount"
                   value={tradeAmount}
-                  onChange={(e) => setTradeAmount(parseFloat(e.target.value) || 1)}
-                  min="1"
-                  step="0.1"
+                  onChange={(e) => setTradeAmount(parseFloat(e.target.value) || 0.35)}
+                  min="0.35"
+                  step="0.01"
                   disabled={isTrading}
                 />
               </div>
