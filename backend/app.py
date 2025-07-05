@@ -353,21 +353,6 @@ def set_stop_loss():
 
 @app.route('/api/bot-status', methods=['GET'])
 def get_bot_status():
-    """Get current bot status for debugging"""
-    global bot_instance
-    
-    if not bot_instance:
-        return jsonify({'error': 'Not connected to API'}), 400
-        
-    try:
-        status = bot_instance.get_bot_status()
-        return jsonify(status), 200
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/bot-status', methods=['GET'])
-def get_bot_status():
     """Get detailed bot status for debugging"""
     global bot_instance
     
