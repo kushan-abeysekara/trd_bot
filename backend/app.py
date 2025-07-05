@@ -465,22 +465,24 @@ def start_balance_updates():
         balance_update_thread.start()
 
 
-# Add Socket.IO debug endpoints
-@socketio.on_error()
-def error_handler(e):
-    print(f"Socket.IO error: {str(e)}")
-    
+# Enhanced Socket.IO diagnostic endpoints
 @socketio.on('connect')
 def handle_connect():
     """Handle socket connection"""
     print(f'Client connected: {request.sid}')
-    emit('message', {'data': 'Connected to trading bot server'})
-
+    # Send detailed connection info to help troubleshoot
+    client_info = {
+        'session_id': request.sid,
+        'transport': request.environ.get('socketio.transport', 'unknown'),
+        'connected': True,
+        'server_timestamp': time.time()
+    }
+    emit('message', {'data': 'Connected to trading bot server', 'connection_info': client_info})
 
 @socketio.on('disconnect')
-def handle_disconnect():
+def handle_disconnect(reason):
     """Handle socket disconnection"""
-    print('Client disconnected')
+    print(f'Client disconnected: {reason}')
 
 
 @socketio.on('request_strategy_update')
@@ -509,11 +511,17 @@ def handle_strategy_update_request():
 @app.route('/api/socket-test', methods=['GET'])
 def socket_test():
     """Test Socket.IO connectivity"""
-    socketio.emit('test_event', {'message': 'Socket.IO test event'})
+    socketio.emit('test_event', {
+        'message': 'Socket.IO test event',
+        'timestamp': time.time(),
+        'transport_options': socketio.server.eio.transport_options
+    })
     return jsonify({
         'message': 'Socket.IO test event sent',
         'cors_origins': CORS_ORIGINS,
-        'socket_path': 'socket.io'
+        'socket_path': socketio.server.eio.path or 'socket.io',
+        'ping_interval': socketio.server.eio.ping_interval,
+        'ping_timeout': socketio.server.eio.ping_timeout
     }), 200
 
 

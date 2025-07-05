@@ -269,6 +269,80 @@ const socket = io(WS_URL, socketOptions);
 3. Verify Upgrade headers are present in the request/response
 4. Test with both WebSocket and polling transports
 
+## WebSocket Troubleshooting
+
+If you're experiencing WebSocket connection issues ("Invalid session", 400 errors, or failure to establish WebSocket connections), try these solutions:
+
+### 1. Update Frontend Socket.IO Configuration
+
+Change your Socket.IO initialization to use WebSocket transport only (no polling):
+
+```javascript
+// In your React app's useEffect
+const socketOptions = {
+  path: API_BASE_URL.includes('/api') ? '/api/socket.io' : '/socket.io',
+  transports: ['websocket'], // Force WebSocket only
+  upgrade: false, // Prevent transport upgrades
+  reconnectionAttempts: 5,
+  timeout: 20000
+};
+
+const socket = io(WS_URL, socketOptions);
+```
+
+### 2. Fix Disconnect Handler in Backend
+
+Ensure your disconnect handler accepts the reason parameter:
+
+```python
+@socketio.on('disconnect')
+def handle_disconnect(reason):
+    print(f'Client disconnected: {reason}')
+```
+
+### 3. Check for Path Mismatches
+
+Ensure the Socket.IO path is consistent between frontend and backend:
+
+- Frontend: `path: '/api/socket.io'` or `path: '/socket.io'`
+- Backend: Match the path configuration accordingly
+
+### 4. Increase Socket Timeout Settings
+
+```python
+# In production_server.py
+socketio.server.eio.ping_interval = 25
+socketio.server.eio.ping_timeout = 60
+```
+
+### 5. Check Proxy Headers
+
+If using a reverse proxy, ensure it's properly configured for WebSockets:
+
+```nginx
+proxy_http_version 1.1;
+proxy_set_header Upgrade $http_upgrade;
+proxy_set_header Connection "Upgrade";
+```
+
+### 6. Test Direct Connection
+
+To isolate if it's a proxy issue, test connecting directly to the backend server when possible.
+
+### 7. Verify CORS Settings
+
+Make sure your CORS settings include all required origins and support WebSocket connections:
+
+```python
+# In your Flask app
+CORS(app, origins=CORS_ORIGINS, supports_credentials=True)
+socketio = SocketIO(app, cors_allowed_origins=CORS_ORIGINS)
+```
+
+### 8. Check Network Logs
+
+Use browser DevTools Network tab (filter by WS) to see if WebSocket connections are being attempted and what errors occur.
+
 ## Production URLs
 
 After deployment, your application will be available at:

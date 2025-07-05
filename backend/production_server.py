@@ -16,11 +16,17 @@ from config import FLASK_HOST, FLASK_PORT
 
 if __name__ == '__main__':
     # Production mode with Gunicorn-compatible settings
+    # Increase ping interval and timeout for more reliable WebSocket connections
+    socketio.server.eio.ping_interval = 25
+    socketio.server.eio.ping_timeout = 60
+    
     socketio.run(
         app,
         host=FLASK_HOST,
         port=FLASK_PORT,
         debug=False,
         allow_unsafe_werkzeug=True,
-        use_reloader=False
+        use_reloader=False,
+        log_output=True,  # Enable logging
+        cors_allowed_origins='*'  # Temporarily allow all origins for testing
     )

@@ -47,8 +47,23 @@ function App() {
   const [realProfit, setRealProfit] = useState(0);
 
   useEffect(() => {
-    // Initialize socket connection with environment-based URL
-    const newSocket = io(WS_URL);
+    // Initialize socket connection with optimized WebSocket settings
+    const socketOptions = {
+      path: API_BASE_URL.includes('/api') ? '/api/socket.io' : '/socket.io',
+      transports: ['websocket'], // Force WebSocket only, no polling fallback
+      upgrade: false, // Prevent transport upgrades
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+      timeout: 20000
+    };
+
+    const newSocket = io(WS_URL, socketOptions);
+
+    newSocket.on('connect_error', (error) => {
+      console.error('Socket connection error:', error);
+      setMessage('WebSocket connection error. Please check your network.');
+      setMessageType('error');
+    });
 
     newSocket.on('connection_status', (data) => {
       setIsConnected(data.connected);
