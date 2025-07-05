@@ -174,7 +174,7 @@ function App() {
   // Load available strategies
   const loadStrategies = async () => {
     try {
-      const response = await axios.get('/api/strategies');
+      await axios.get('/api/strategies');
       // Note: strategies loaded but not stored in state since they're not used in UI
     } catch (error) {
       console.error('Failed to load strategies:', error);
