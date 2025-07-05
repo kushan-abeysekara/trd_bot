@@ -87,19 +87,6 @@ class DerivAPI:
                 if req_id in self.callbacks:
                     self.callbacks[req_id](data)
                     del self.callbacks[req_id]
-            
-            elif data.get("msg_type") == "proposal_open_contract":
-                # Handle contract monitoring updates
-                req_id = data.get("req_id")
-                if req_id in self.callbacks:
-                    # Only delete callback when contract is finished
-                    contract = data.get("proposal_open_contract", {})
-                    is_finished = contract.get("status") != "open"
-                    
-                    self.callbacks[req_id](data)
-                    
-                    if is_finished:
-                        del self.callbacks[req_id]
                     
         except json.JSONDecodeError:
             print(f"Failed to parse message: {message}")
@@ -145,7 +132,7 @@ class DerivAPI:
             "contract_type": contract_type,
             "currency": "USD",
             "duration": duration,
-            "duration_unit": "s",  # seconds (changed from ticks)
+            "duration_unit": "t",  # ticks
             "symbol": "R_100",  # Volatility 100 Index
             "req_id": self.req_id
         }
@@ -194,58 +181,3 @@ class DerivAPI:
         if self.ws:
             self.ws.close()
             self.is_connected = False
-            
-    def monitor_contract(self, contract_id, callback):
-        """Monitor a specific contract for real result verification"""
-        if not self.is_connected:
-            callback({"error": {"message": "Not connected to API"}})
-            return
-            
-        proposal_request = {
-            "proposal_open_contract": 1,
-            "contract_id": contract_id,
-            "subscribe": 1,
-            "req_id": self.req_id
-        }
-        
-        self.callbacks[self.req_id] = callback
-        self.ws.send(json.dumps(proposal_request))
-        self.req_id += 1
-        
-    def subscribe_to_contract(self, contract_id, callback):
-        """Subscribe to contract updates for a specific contract ID"""
-        if not self.is_connected:
-            callback({"error": {"message": "Not connected to API"}})
-            return
-            
-        proposal_open_request = {
-            "proposal_open_contract": 1,
-            "contract_id": contract_id,
-            "subscribe": 1,
-            "req_id": self.req_id
-        }
-        
-        self.callbacks[self.req_id] = callback
-        self.ws.send(json.dumps(proposal_open_request))
-        
-        # Return the subscription ID so it can be used to unsubscribe later
-        subscription_id = self.req_id
-        self.req_id += 1
-        return subscription_id
-        
-    def unsubscribe(self, subscription_id):
-        """Unsubscribe from a previous subscription"""
-        if not self.is_connected:
-            return
-            
-        forget_request = {
-            "forget": subscription_id,
-            "req_id": self.req_id
-        }
-        
-        self.ws.send(json.dumps(forget_request))
-        self.req_id += 1
-        
-        # Remove callback if it exists
-        if subscription_id in self.callbacks:
-            del self.callbacks[subscription_id]

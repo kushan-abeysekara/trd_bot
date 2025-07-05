@@ -615,13 +615,6 @@ code {
   text-align: center;
 }
 
-.balance-details {
-  margin-top: 15px;
-  padding: 10px;
-  border-radius: 10px;
-  background-color: rgba(0,0,0,0.04);
-}
-
 .stats-row {
   display: flex;
   justify-content: space-between;

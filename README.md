@@ -73,7 +73,7 @@ The backend will start on http://localhost:5000
    npm start
    ```
 
-The frontend will start on http://localhost:3000
+The frontend will start on http://localhost:8080
 
 ## Usage
 
@@ -84,7 +84,7 @@ The frontend will start on http://localhost:3000
 
 2. **Start the Application**:
    - Ensure both backend and frontend servers are running
-   - Open http://localhost:3000 in your browser
+   - Open http://localhost:8080 in your browser
 
 3. **Connect to Deriv**:
    - Enter your API token in the text box

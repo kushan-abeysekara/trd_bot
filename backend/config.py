@@ -1,16 +1,19 @@
+import os
+from dotenv import load_dotenv
+
+# Load environment variables based on environment
+env = os.getenv('FLASK_ENV', 'development')
+if env == 'production':
+    load_dotenv('.env.production')
+else:
+    load_dotenv('.env.development')
+
 # Deriv Trading Bot Configuration
 
 # Trading Settings
 DEFAULT_TRADE_AMOUNT = 1.0
-MIN_TRADE_AMOUNT = 0.35  # Minimum allowed trade amount in USD
-DEFAULT_DURATION_SECONDS = 15  # Changed from ticks to seconds-based trading
-MIN_DURATION_SECONDS = 10
-MAX_DURATION_SECONDS = 30
-TRADE_INTERVAL_SECONDS = 1  # Reduced to 1 second for very frequent trades
-ONE_TRADE_AT_A_TIME = False  # Allow multiple trades for testing
-FORCE_STRATEGY_SIGNALS = True  # Force more aggressive signal generation
-AGGRESSIVE_SIGNAL_MODE = True  # Enable aggressive signal generation
-SIGNAL_CONFIDENCE_THRESHOLD = 0.40  # Lowered threshold even more for more signals
+DEFAULT_DURATION_TICKS = 5
+TRADE_INTERVAL_SECONDS = 30
 
 # Simulation Settings (for demo purposes)
 SIMULATED_WIN_RATE = 0.6  # 60% win rate
@@ -18,17 +21,19 @@ PAYOUT_MULTIPLIER = 1.95  # 95% payout
 
 # API Settings
 DERIV_WEBSOCKET_URL = "wss://ws.binaryws.com/websockets/v3?app_id=1089"
-TRADING_SYMBOL = "R_100"  # Volatility 100 Index
+TRADING_SYMBOL = "R_10"  # Volatility 100 Index
 
-# Server Settings
-FLASK_HOST = "0.0.0.0"
-FLASK_PORT = 5000
-FLASK_DEBUG = True
+# Server Settings - Environment specific
+FLASK_HOST = os.getenv('FLASK_HOST', "0.0.0.0")
+FLASK_PORT = int(os.getenv('FLASK_PORT', 5000))
+FLASK_DEBUG = os.getenv('FLASK_DEBUG', 'True').lower() == 'true'
+
+# CORS Settings
+CORS_ORIGINS = os.getenv('CORS_ORIGINS', 'http://localhost:8080').split(',')
 
 # Frontend Settings
-REACT_PORT = 3000
+REACT_PORT = 8080
 
-# Balance Tracking Settings
-SHOW_STARTING_BALANCE = True  # Display starting account balance
-TRACK_SESSION_PNL = True      # Track profit/loss by session
-ACCURATE_PNL_CALCULATION = True  # Use more accurate PnL calculation
+# URL Settings
+FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:8080')
+BACKEND_URL = os.getenv('BACKEND_URL', 'http://localhost:5000/api')

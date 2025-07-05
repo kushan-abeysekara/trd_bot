@@ -14,7 +14,11 @@ echo.
 echo ✅ Both servers are starting up!
 echo.
 echo Backend will be available at: http://localhost:5000
-echo Frontend will be available at: http://localhost:3000
+echo Frontend will be available at: http://localhost:8080
+echo.
+echo 🌐 Production URLs:
+echo Frontend: https://tradingbot-4iuxi.ondigitalocean.app
+echo Backend API: https://tradingbot-4iuxi.ondigitalocean.app/api
 echo.
 echo The application will automatically open in your browser.
 echo.
