@@ -75,6 +75,41 @@ The backend will start on http://localhost:5000
 
 The frontend will start on http://localhost:8080
 
+## Deployment
+
+### Local Development
+For local development, use the standard startup scripts:
+
+**Windows:**
+```cmd
+start-app.bat
+```
+
+**Linux/Mac:**
+```bash
+chmod +x setup-advanced-strategies.sh
+./setup-advanced-strategies.sh
+```
+
+### Production Deployment
+
+⚠️ **Getting "Invalid Host header" error?** 
+
+Use the production deployment scripts instead:
+
+**Windows:**
+```cmd
+start-production.bat
+```
+
+**Linux/Mac:**
+```bash
+chmod +x start-production.sh
+./start-production.sh
+```
+
+📖 **For detailed deployment instructions, troubleshooting, and server configuration, see [DEPLOYMENT.md](DEPLOYMENT.md)**
+
 ## Usage
 
 1. **Get Your API Token**: 

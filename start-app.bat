@@ -20,7 +20,10 @@ echo 🌐 Production URLs:
 echo Frontend: https://tradingbot-4iuxi.ondigitalocean.app
 echo Backend API: https://tradingbot-4iuxi.ondigitalocean.app/api
 echo.
+echo 🔧 For deployment on external server, use start-production.bat instead
 echo The application will automatically open in your browser.
 echo.
+
+pause
 
 pause
