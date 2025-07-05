@@ -32,7 +32,7 @@ FLASK_HOST = os.getenv('FLASK_HOST', '0.0.0.0')
 FLASK_PORT = int(os.getenv('FLASK_PORT', 5000))
 
 # CORS Settings - Allow multiple origins
-CORS_ORIGINS = os.getenv('CORS_ORIGINS', 'http://localhost:3000,http://127.0.0.1:3000,http://localhost:8080,https://tradingbot-4iuxi.ondigitalocean.app').split(',')
+CORS_ORIGINS = os.getenv('CORS_ORIGINS', 'http://localhost:3000,http://127.0.0.1:3000,http://localhost:8080,https://your-domain.com,https://tradingbot-4iuxi.ondigitalocean.app').split(',')
 
 # Frontend Settings
 REACT_PORT = 8080

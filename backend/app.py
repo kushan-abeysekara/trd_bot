@@ -12,7 +12,13 @@ app.config['SECRET_KEY'] = 'deriv-trading-bot-secret'
 
 # Configure CORS with environment-specific origins
 CORS(app, origins=CORS_ORIGINS)
-socketio = SocketIO(app, cors_allowed_origins=CORS_ORIGINS, async_mode='threading', logger=True, engineio_logger=True)
+socketio = SocketIO(app, 
+                   cors_allowed_origins=CORS_ORIGINS, 
+                   async_mode='threading', 
+                   logger=True, 
+                   engineio_logger=True,
+                   ping_timeout=60,
+                   ping_interval=25)
 
 # Global bot instance
 bot_instance = None
@@ -459,10 +465,15 @@ def start_balance_updates():
         balance_update_thread.start()
 
 
+# Add Socket.IO debug endpoints
+@socketio.on_error()
+def error_handler(e):
+    print(f"Socket.IO error: {str(e)}")
+    
 @socketio.on('connect')
 def handle_connect():
     """Handle socket connection"""
-    print('Client connected')
+    print(f'Client connected: {request.sid}')
     emit('message', {'data': 'Connected to trading bot server'})
 
 
@@ -492,6 +503,18 @@ def handle_strategy_update_request():
             
         except Exception as e:
             emit('error', {'message': f'Strategy update error: {str(e)}'})
+
+
+# Add a diagnostic route
+@app.route('/api/socket-test', methods=['GET'])
+def socket_test():
+    """Test Socket.IO connectivity"""
+    socketio.emit('test_event', {'message': 'Socket.IO test event'})
+    return jsonify({
+        'message': 'Socket.IO test event sent',
+        'cors_origins': CORS_ORIGINS,
+        'socket_path': 'socket.io'
+    }), 200
 
 
 if __name__ == '__main__':

@@ -171,6 +171,74 @@ For production, you can use Nginx as a reverse proxy:
    sudo systemctl restart nginx
    ```
 
+## WebSocket Configuration (Important!)
+
+WebSockets require special configuration to work correctly in production:
+
+### 1. Nginx WebSocket Configuration
+
+Ensure your Nginx configuration includes proper WebSocket proxy settings:
+
+```nginx
+# WebSocket for Socket.IO
+location /socket.io/ {
+    proxy_pass http://localhost:5000/socket.io/;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "Upgrade";
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    
+    # WebSocket timeouts
+    proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
+}
+
+# Additional path if using API prefix
+location /api/socket.io/ {
+    proxy_pass http://localhost:5000/socket.io/;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "Upgrade";
+    proxy_set_header Host $host;
+    
+    # WebSocket timeouts
+    proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
+}
+```
+
+### 2. DigitalOcean App Platform Configuration
+
+If using DigitalOcean App Platform:
+
+1. Add a new HTTP Route:
+   - Route Path: `/socket.io`
+   - Rewrite Path: (leave blank)
+   - ✓ Tick "Preserve Path Prefix"
+
+2. Also add another route if using API prefix:
+   - Route Path: `/api/socket.io`
+   - Rewrite Path: `/socket.io`
+   - ✓ Tick "Preserve Path Prefix"
+
+3. Ensure WebSocket support is enabled in your App Platform settings
+
+### 3. Frontend Socket.IO Configuration
+
+Update your frontend Socket.IO connection to use the correct path:
+
+```javascript
+// In your React app
+const socketOptions = {
+  path: API_BASE_URL.includes('/api') ? '/api/socket.io' : '/socket.io',
+  transports: ['websocket', 'polling'],
+  reconnectionAttempts: 5
+};
+
+const socket = io(WS_URL, socketOptions);
+```
+
 ## Troubleshooting
 
 ### "Invalid Host header" Error
@@ -192,6 +260,14 @@ For production, you can use Nginx as a reverse proxy:
 - Ensure Socket.IO is properly configured
 - Check that WebSocket connections aren't blocked by proxy/firewall
 - Verify correct WebSocket URL in frontend configuration
+- Check WebSocket network traffic in browser DevTools (WS tab)
+- Test WebSocket connectivity using the /api/socket-test endpoint
+
+#### WebSocket Debug Steps:
+1. Check browser console for connection errors
+2. In DevTools Network tab, filter by WS to see if connection attempts are made
+3. Verify Upgrade headers are present in the request/response
+4. Test with both WebSocket and polling transports
 
 ## Production URLs
 
