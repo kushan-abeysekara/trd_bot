@@ -44,7 +44,7 @@ class TradeSignal:
 
 
 class StrategyEngine:
-    """Advanced strategy engine with 35 binary trading strategies"""
+    """Advanced strategy engine with 16 binary trading strategies"""
     
     def __init__(self, max_ticks: int = 200):
         self.max_ticks = max_ticks
@@ -58,7 +58,7 @@ class StrategyEngine:
         self.total_scans = 0
         self.signals_generated = 0
         
-        # Strategy configurations - All 35 strategies
+        # Strategy configurations - 16 proven strategies
         self.strategies = {
             1: "Adaptive Mean Reversion Rebound",
             2: "Micro-Trend Momentum Tracker", 
@@ -75,26 +75,7 @@ class StrategyEngine:
             13: "Inverted Divergence Flip",
             14: "Cumulative Strength Index Pullback",
             15: "Tri-Indicator Confluence Strategy",
-            16: "RSI Stall Reversal",
-            17: "Tick Flow Momentum Ride",
-            18: "Divergence Snapback",
-            19: "Volatility Breakout Tick Rejection",
-            20: "Triple Confirmation Flow",
-            21: "Tick Trap Reversal",
-            22: "Bollinger Bounce Magnet",
-            23: "EMA Compression Breakout",
-            24: "Tick RSI Bounce",
-            25: "Tick Pulse Sync",
-            26: "EMA Magnet Pullback",
-            27: "RSI Mirror Flip",
-            28: "MACD Crossover Trigger",
-            29: "Volatility Expansion Ride",
-            30: "RSI Gradient Tilt",
-            31: "Rebound from Flat Session",
-            32: "Opposite Color Flush",
-            33: "RSI Ghost Divergence",
-            34: "Triple Tick Momentum Snap",
-            35: "Hybrid Confluence Gate"
+            16: "RSI Stall Reversal"
         }
         
     def start_scanning(self, signal_callback):
@@ -257,12 +238,12 @@ class StrategyEngine:
                 time.sleep(0.05)  # Brief pause on error
             
     def _scan_strategies(self):
-        """Scan all 35 strategies for trade signals"""
+        """Scan all 16 strategies for trade signals"""
         signals = []
         strategy_status = {}
         
-        # Scan all 35 strategies in real-time FIRST
-        for i in range(1, 36):
+        # Scan all 16 strategies in real-time FIRST
+        for i in range(1, 17):
             try:
                 signal = getattr(self, f'_strategy_{i}')()
                 strategy_status[i] = {
@@ -333,7 +314,7 @@ class StrategyEngine:
             # Also send strategy scan summary (less frequent logging)
             if self.total_scans % 50 == 0:  # Every 50 scans (reduced from 100)
                 active_count = len([s for s in strategy_status.values() if s['active']])
-                print(f"[STRATEGY ENGINE] Scan #{self.total_scans}: {active_count}/35 strategies active, {len(signals)} signals")
+                print(f"[STRATEGY ENGINE] Scan #{self.total_scans}: {active_count}/16 strategies active, {len(signals)} signals")
             
     def _strategy_1(self) -> Optional[TradeSignal]:
         """Adaptive Mean Reversion Rebound"""
@@ -1177,16 +1158,8 @@ class StrategyEngine:
             
         return None
         
-    def _strategy_17(self) -> Optional[TradeSignal]:
-        """Tick Flow Momentum Ride - Ride strong tick flow if confirmed by momentum"""
-        if len(self.tick_history) < 5:
-            return None
-            
-        conditions_met = []
-        
-        # Check 4 out of last 5 ticks same color
-        last_5_ticks = [tick.color for tick in list(self.tick_history)[-5:]]
-        green_count = last_5_ticks.count('green')
+    def get_current_indicators(self) -> Dict:
+        """Get current technical indicators for display"""
         red_count = last_5_ticks.count('red')
         
         # Momentum > ±0.15%

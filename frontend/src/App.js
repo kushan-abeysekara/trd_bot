@@ -17,7 +17,6 @@ function App() {
   const [balance, setBalance] = useState(0);
   const balanceRef = useRef(0); // Keep a ref for balance comparisons
   const [tradeAmount, setTradeAmount] = useState(1);
-  const [duration, setDuration] = useState(5);
   const [stats, setStats] = useState({
     total_trades: 0,
     winning_trades: 0,
@@ -268,8 +267,8 @@ function App() {
   const handleStartTrading = async () => {
     try {
       await axios.post('/api/start-trading', {
-        amount: tradeAmount,
-        duration: duration
+        amount: tradeAmount
+        // Duration is now fixed at 1 tick, so we don't send it
       });
       setIsTrading(true);
       setMessage('Trading started successfully');
@@ -329,7 +328,7 @@ function App() {
     <div className="container">
       <div className="header">
         <h1>🤖 Deriv Volatility Index Trading Bot</h1>
-        <p>Automated trading for Volatility 100 Index with Rise/Fall contracts</p>
+        <p>Automated 1-Tick trading for Volatility 100 Index</p>
       </div>
 
       {message && (
@@ -394,18 +393,7 @@ function App() {
                 />
               </div>
 
-              <div className="form-group">
-                <label htmlFor="duration">Duration (Ticks):</label>
-                <select
-                  id="duration"
-                  value={duration}
-                  onChange={(e) => setDuration(parseInt(e.target.value))}
-                  disabled={isTrading}
-                >
-                  <option value={5}>5 Ticks</option>
-                  <option value={10}>10 Ticks</option>
-                </select>
-              </div>
+              {/* Duration dropdown removed - now using fixed 1-tick trading */}
 
               {/* Take Profit Settings */}
               <div className="form-group">

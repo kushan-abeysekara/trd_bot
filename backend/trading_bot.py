@@ -12,7 +12,7 @@ class TradingBot:
         self.api = DerivAPI(api_token)
         self.is_running = False
         self.trade_amount = 1.0
-        self.duration_ticks = 5
+        self.duration_ticks = 1  # Changed from 5 to 1 for single-tick trading
         self.trade_history = []
         self.stats = {
             'total_trades': 0,
@@ -67,10 +67,10 @@ class TradingBot:
         self.api.set_balance_callback(balance_update_callback)
         self.api.connect(connection_callback)
         
-    def start_trading(self, amount: float, duration: int):
+    def start_trading(self, amount: float, duration: int = 1):  # Default to 1 tick
         """Start automated trading"""
         self.trade_amount = amount
-        self.duration_ticks = duration
+        self.duration_ticks = 1  # Always use 1 tick regardless of input
         self.is_running = True
         
         # Reset session tracking
@@ -464,8 +464,8 @@ class TradingBot:
     def _simulate_strategy_trade_result(self, trade_info, signal: TradeSignal):
         """Simulate trade result based on strategy confidence"""
         def delayed_result():
-            # Wait for signal hold time
-            time.sleep(signal.hold_time)
+            # Use shorter wait time for 1-tick trades
+            time.sleep(2)  # Wait 2 seconds for 1-tick result
             
             # Win probability based on strategy confidence
             win_probability = 0.5 + (signal.confidence * 0.3)  # 50% base + 30% max bonus

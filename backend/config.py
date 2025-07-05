@@ -8,10 +8,10 @@ load_dotenv()
 # Trading Settings
 DEFAULT_TRADE_AMOUNT = 1.0
 MIN_TRADE_AMOUNT = 0.35  # Minimum allowed trade amount in USD
-DEFAULT_DURATION_SECONDS = 15  # Changed from ticks to seconds-based trading
-MIN_DURATION_SECONDS = 10
-MAX_DURATION_SECONDS = 30
-TRADE_INTERVAL_SECONDS = 2  # Reduced to 2 seconds for very frequent trades
+DEFAULT_DURATION_SECONDS = 3  # Changed for 1-tick trading (approx. 3 seconds)
+MIN_DURATION_SECONDS = 2
+MAX_DURATION_SECONDS = 5
+TRADE_INTERVAL_SECONDS = 1  # Reduced to 1 second for very frequent trades
 ONE_TRADE_AT_A_TIME = False  # Allow multiple trades for testing
 FORCE_STRATEGY_SIGNALS = True  # Force more aggressive signal generation
 AGGRESSIVE_SIGNAL_MODE = True  # Enable aggressive signal generation

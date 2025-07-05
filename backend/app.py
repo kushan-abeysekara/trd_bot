@@ -105,10 +105,10 @@ def start_trading():
         
     data = request.get_json()
     amount = float(data.get('amount', 1.0))
-    duration = int(data.get('duration', 5))
     
     try:
-        bot_instance.start_trading(amount, duration)
+        # Always use 1 tick for duration
+        bot_instance.start_trading(amount, 1)
         return jsonify({'message': 'Trading started'}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
