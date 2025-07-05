@@ -10,7 +10,7 @@ function App() {
   const [balance, setBalance] = useState(0);
   const balanceRef = useRef(0); // Keep a ref for balance comparisons
   const [tradeAmount, setTradeAmount] = useState(0.35); // Minimum allowed trade amount
-  const [duration, setDuration] = useState(5);
+  // Duration is now dynamic based on the strategy signal
   const [stats, setStats] = useState({
     total_trades: 0,
     winning_trades: 0,
@@ -41,8 +41,27 @@ function App() {
   });
 
   useEffect(() => {
+    // Dynamically determine the API URL based on current environment
+    const getApiUrl = () => {
+      const hostname = window.location.hostname;
+      if (hostname === 'localhost' || hostname === '127.0.0.1') {
+        return 'http://localhost:5000';
+      } else {
+        return 'https://tradingbot-4iuxi.ondigitalocean.app';
+      }
+    };
+
+    const apiUrl = getApiUrl();
+    console.log(`🌐 Connecting to API at: ${apiUrl}`);
+
+    // Configure axios defaults
+    axios.defaults.baseURL = apiUrl;
+    
     // Initialize socket connection
-    const newSocket = io('http://localhost:5000');
+    const newSocket = io(apiUrl, {
+      withCredentials: true,
+      transports: ['websocket', 'polling']
+    });
     setSocket(newSocket);
 
     newSocket.on('connection_status', (data) => {
@@ -98,6 +117,14 @@ function App() {
 
     newSocket.on('stats_update', (newStats) => {
       setStats(newStats);
+      // Update session stats if available in the stats update
+      if (newStats.initial_balance !== undefined && newStats.session_profit_loss !== undefined) {
+        setSessionStats(prev => ({
+          ...prev,
+          initial_balance: newStats.initial_balance,
+          session_profit_loss: newStats.session_profit_loss
+        }));
+      }
     });
 
     newSocket.on('strategy_signal', (signalData) => {
@@ -265,7 +292,7 @@ function App() {
     try {
       await axios.post('/api/start-trading', {
         amount: tradeAmount,
-        duration: duration
+        // Duration is now handled dynamically in the backend based on each signal
       });
       setIsTrading(true);
       setMessage('Trading started successfully');
@@ -390,18 +417,7 @@ function App() {
                 />
               </div>
 
-              <div className="form-group">
-                <label htmlFor="duration">Duration (Ticks):</label>
-                <select
-                  id="duration"
-                  value={duration}
-                  onChange={(e) => setDuration(parseInt(e.target.value))}
-                  disabled={isTrading}
-                >
-                  <option value={5}>5 Ticks</option>
-                  <option value={10}>10 Ticks</option>
-                </select>
-              </div>
+              {/* Duration dropdown removed - now using dynamic duration based on signal */}
 
               {/* Take Profit Settings */}
               <div className="form-group">
@@ -570,6 +586,21 @@ function App() {
               {formatCurrency(stats.total_profit_loss)}
             </span>
           </div>
+
+          {stats.initial_balance > 0 && (
+            <div className="balance-details">
+              <div className="stats-row">
+                <span>Starting Balance:</span>
+                <span>{formatCurrency(stats.initial_balance)}</span>
+              </div>
+              <div className="stats-row">
+                <span>Session P&L:</span>
+                <span className={stats.session_profit_loss >= 0 ? 'profit' : 'loss'}>
+                  {formatCurrency(stats.session_profit_loss)}
+                </span>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

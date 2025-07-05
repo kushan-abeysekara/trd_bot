@@ -13,7 +13,7 @@ class TradingBot:
         self.api = DerivAPI(api_token)
         self.is_running = False
         self.trade_amount = config.DEFAULT_TRADE_AMOUNT
-        self.duration_ticks = config.DEFAULT_DURATION_TICKS
+        self.duration_seconds = config.DEFAULT_DURATION_SECONDS
         self.trade_history = []
         self.stats = {
             'total_trades': 0,
@@ -38,6 +38,7 @@ class TradingBot:
         self.last_strategy_signals = {}  # Track last signal time per strategy
         self.strategy_cooldown = 8  # Reduced to 8 seconds per individual strategy
         self.signal_count = 0  # Track total signals received
+        self.active_trades = 0  # Track currently active trades
         
         # Trading mode: 'random' or 'strategy'
         self.trading_mode = 'strategy'
@@ -75,7 +76,7 @@ class TradingBot:
             raise ValueError(f"Trade amount must be at least ${config.MIN_TRADE_AMOUNT}")
             
         self.trade_amount = amount
-        self.duration_ticks = duration
+        self.duration_seconds = duration
         self.is_running = True
         
         # Reset session tracking
@@ -209,6 +210,12 @@ class TradingBot:
         
         print(f"📡 Signal #{self.signal_count} received: {signal.strategy_name} ({signal.confidence:.2f})")
         
+        # Check if we already have an active trade and ONE_TRADE_AT_A_TIME is enabled
+        if config.ONE_TRADE_AT_A_TIME and self.active_trades > 0:
+            print(f"⏳ Signal ignored: {self.active_trades} active trade(s) in progress. Waiting for completion.")
+            # Always enforce one trade at a time - don't allow multiple trades
+            return
+        
         # Global signal interval check - much shorter now
         if current_time - self.last_signal_time < self.min_signal_interval:
             remaining = self.min_signal_interval - (current_time - self.last_signal_time)
@@ -286,6 +293,20 @@ class TradingBot:
         """Place a trade based on strategy signal"""
         print(f"📋 Placing trade for {signal.strategy_name}...")
         
+        # Use the signal's hold time to determine actual duration in seconds
+        # Use varying durations based on the strategy's confidence and signal strength
+        # This makes each trade unique with a customized duration
+        base_duration = signal.hold_time
+        confidence_factor = min(1.5, max(0.8, signal.confidence * 1.5))  # Scale factor 0.8 to 1.5
+        
+        # Dynamic duration adjusted by confidence (higher confidence = more precise duration)
+        adjusted_duration = base_duration * confidence_factor
+        
+        # Ensure reasonable duration (between MIN and MAX seconds)
+        seconds_duration = min(config.MAX_DURATION_SECONDS, max(config.MIN_DURATION_SECONDS, round(adjusted_duration)))
+        
+        print(f"🎯 Using dynamic duration of {seconds_duration} seconds for {signal.strategy_name} strategy")
+        
         def proposal_callback(response):
             try:
                 if response.get("error"):
@@ -315,7 +336,8 @@ class TradingBot:
                                 'type': signal.direction,
                                 'amount': self.trade_amount,
                                 'buy_price': buy_price,
-                                'duration': signal.hold_time,  # Use signal hold time
+                                'duration': seconds_duration,  # Use calculated seconds duration
+                                'duration_type': 'seconds',
                                 'timestamp': datetime.now().isoformat(),
                                 'status': 'active',
                                 'strategy_name': signal.strategy_name,
@@ -324,8 +346,11 @@ class TradingBot:
                                 'conditions_met': signal.conditions_met
                             }
                             
+                            # Increment active trades counter
+                            self.active_trades += 1
+                            
                             self.trade_history.append(trade_info)
-                            print(f"🎯 Trade placed: {contract_id} for {signal.strategy_name}")
+                            print(f"🎯 Trade placed: {contract_id} for {signal.strategy_name} (Active trades: {self.active_trades})")
                             
                             # Send trade update (non-blocking)
                             if self.callbacks['trade_update']:
@@ -352,9 +377,10 @@ class TradingBot:
             except Exception as e:
                 print(f"❌ Error in proposal callback: {e}")
                 
-        # Get proposal (non-blocking)
+        # Get proposal (non-blocking) with dynamic seconds duration
         try:
-            self.api.get_proposal(signal.direction, self.duration_ticks, self.trade_amount, proposal_callback)
+            # Use the already calculated dynamic seconds duration
+            self.api.get_proposal(signal.direction, seconds_duration, self.trade_amount, proposal_callback)
         except Exception as e:
             print(f"❌ Error getting proposal: {e}")
             
@@ -390,7 +416,11 @@ class TradingBot:
                         'status': 'active'
                     }
                     
+                    # Increment active trades counter
+                    self.active_trades += 1
+                    
                     self.trade_history.append(trade_info)
+                    print(f"🎯 Regular trade placed (Active trades: {self.active_trades})")
                     
                     if self.callbacks['trade_update']:
                         self.callbacks['trade_update'](trade_info)
@@ -400,13 +430,13 @@ class TradingBot:
                     
                 self.api.buy_contract(proposal_id, ask_price, buy_callback)
                 
-        self.api.get_proposal(contract_type, self.duration_ticks, self.trade_amount, proposal_callback)
+        self.api.get_proposal(contract_type, self.duration_seconds, self.trade_amount, proposal_callback)
         
     def _simulate_trade_result(self, trade_info):
         """Simulate trade result for regular (non-strategy) trades"""
         def delayed_result():
-            # Wait for trade duration (in ticks, simulate as seconds for demo)
-            duration_seconds = trade_info['duration'] * 2  # 2 seconds per tick for demo
+            # Wait for trade duration (in actual seconds)
+            duration_seconds = trade_info['duration']  # Already in seconds
             time.sleep(duration_seconds)
             
             # Win probability for regular trades (60% win rate)
@@ -423,16 +453,35 @@ class TradingBot:
                 
             self.stats['total_trades'] += 1
             self.stats['total_profit_loss'] += profit_loss
-            self.stats['winning_rate'] = (self.stats['winning_trades'] / self.stats['total_trades']) * 100
             
-            # Update session profit/loss tracking
-            self.session_profit_loss += profit_loss
+            # Properly calculate win rate to avoid division by zero
+            if self.stats['total_trades'] > 0:
+                self.stats['winning_rate'] = (self.stats['winning_trades'] / self.stats['total_trades']) * 100
+            else:
+                self.stats['winning_rate'] = 0.0
             
-            # Update actual balance (simulate balance change)
-            self.api.update_balance(profit_loss)
-            
-            # Get the updated balance
-            updated_balance = self.get_balance()
+            # Update session profit/loss tracking with more accuracy
+            if config.ACCURATE_PNL_CALCULATION:
+                # More accurate profit/loss tracking
+                old_balance = self.api.get_balance_value()
+                self.api.update_balance(profit_loss)
+                updated_balance = self.get_balance()
+                
+                # Record the actual balance change for more accurate PnL
+                actual_profit_loss = updated_balance - old_balance
+                
+                # Use the actual balance difference for session profit/loss
+                self.session_profit_loss += actual_profit_loss
+                
+                # Log any discrepancies
+                if abs(actual_profit_loss - profit_loss) > 0.01:  # If there's more than 1 cent difference
+                    print(f"⚠️ PnL adjustment: Expected ${profit_loss:.2f}, Actual ${actual_profit_loss:.2f}")
+                    print(f"⚠️ Using actual balance change for accurate tracking")
+            else:
+                # Standard profit/loss tracking
+                self.session_profit_loss += profit_loss
+                self.api.update_balance(profit_loss)
+                updated_balance = self.get_balance()
             
             # Update trade info with final results
             trade_info['result'] = 'win' if is_win else 'loss'
@@ -453,6 +502,10 @@ class TradingBot:
             # Emit complete trade update with all final info
             if self.callbacks.get('trade_update'):
                 self.callbacks['trade_update'](trade_info)
+                
+            # Decrement active trades counter
+            self.active_trades = max(0, self.active_trades - 1)
+            print(f"✅ Trade completed - {self.active_trades} active trades remaining")
             
             # Check if take profit or stop loss limits are hit
             if self.check_profit_loss_limits():
@@ -469,7 +522,7 @@ class TradingBot:
     def _simulate_strategy_trade_result(self, trade_info, signal: TradeSignal):
         """Simulate trade result based on strategy confidence"""
         def delayed_result():
-            # Wait for signal hold time
+            # Wait for signal hold time - simulate ticks processing
             time.sleep(signal.hold_time)
             
             # Win probability based on strategy confidence
@@ -486,17 +539,42 @@ class TradingBot:
                 
             self.stats['total_trades'] += 1
             self.stats['total_profit_loss'] += profit_loss
-            self.stats['winning_rate'] = (self.stats['winning_trades'] / self.stats['total_trades']) * 100
             
-            # Update session profit/loss tracking
-            self.session_profit_loss += profit_loss
+            # Properly calculate win rate to avoid division by zero
+            if self.stats['total_trades'] > 0:
+                self.stats['winning_rate'] = (self.stats['winning_trades'] / self.stats['total_trades']) * 100
+            else:
+                self.stats['winning_rate'] = 0.0
             
-            # Update actual balance (simulate balance change)
-            self.api.update_balance(profit_loss)
+            # Update session profit/loss tracking with more accuracy
+            if config.ACCURATE_PNL_CALCULATION:
+                # More accurate profit/loss tracking
+                old_balance = self.api.get_balance_value()
+                self.api.update_balance(profit_loss)
+                updated_balance = self.get_balance()
+                
+                # Record the actual balance change for more accurate PnL
+                actual_profit_loss = updated_balance - old_balance
+                
+                # Use the actual balance difference for session profit/loss
+                self.session_profit_loss += actual_profit_loss
+                
+                # Log any discrepancies
+                if abs(actual_profit_loss - profit_loss) > 0.01:  # If there's more than 1 cent difference
+                    print(f"⚠️ PnL adjustment: Expected ${profit_loss:.2f}, Actual ${actual_profit_loss:.2f}")
+                    print(f"⚠️ Using actual balance change for accurate tracking")
+            else:
+                # Standard profit/loss tracking
+                self.session_profit_loss += profit_loss
+                self.api.update_balance(profit_loss)
+                updated_balance = self.get_balance()
             
-            # Get the updated balance
-            updated_balance = self.get_balance()
-            
+            # Calculate current session P&L percentage relative to initial balance
+            if self.initial_balance > 0:
+                session_pnl_percent = (self.session_profit_loss / self.initial_balance) * 100
+            else:
+                session_pnl_percent = 0
+                
             # Update trade info with final results
             trade_info['result'] = 'win' if is_win else 'loss'
             trade_info['profit_loss'] = profit_loss
@@ -504,7 +582,9 @@ class TradingBot:
             trade_info['actual_win_probability'] = win_probability
             trade_info['strategy_name'] = signal.strategy_name
             trade_info['session_profit_loss'] = self.session_profit_loss
+            trade_info['session_pnl_percent'] = session_pnl_percent
             trade_info['balance_after'] = updated_balance
+            trade_info['initial_balance'] = self.initial_balance
             
             print(f"💰 Trade Result: {trade_info['result'].upper()} | "
                   f"P&L: ${profit_loss:.2f} | "
@@ -519,6 +599,10 @@ class TradingBot:
             # Emit complete trade update with all final info
             if self.callbacks.get('trade_update'):
                 self.callbacks['trade_update'](trade_info)
+                
+            # Decrement active trades counter
+            self.active_trades = max(0, self.active_trades - 1)
+            print(f"✅ Trade completed - {self.active_trades} active trades remaining")
             
             # Check if take profit or stop loss limits are hit
             if self.check_profit_loss_limits():
@@ -552,7 +636,13 @@ class TradingBot:
         
     def get_stats(self):
         """Get trading statistics"""
-        return self.stats
+        # Add session profit/loss and initial balance to stats
+        stats_with_session = self.stats.copy()
+        stats_with_session['session_profit_loss'] = self.session_profit_loss
+        stats_with_session['initial_balance'] = self.initial_balance
+        stats_with_session['starting_balance'] = self.initial_balance  # For display on frontend
+        stats_with_session['active_trades'] = self.active_trades
+        return stats_with_session
         
     def get_trade_history(self):
         """Get trade history"""
@@ -613,9 +703,45 @@ class TradingBot:
         
     def reset_session_tracking(self):
         """Reset session profit/loss tracking"""
-        self.initial_balance = self.get_balance()
+        # Get the most up-to-date balance from the API
+        try:
+            self.api.refresh_balance()  # Request fresh balance from API first
+            time.sleep(0.5)  # Brief delay to allow for balance update
+            self.initial_balance = self.get_balance()
+        except Exception as e:
+            print(f"Error refreshing balance: {e}")
+            self.initial_balance = self.get_balance()
+            
         self.session_profit_loss = 0.0
-        print(f"Session tracking reset. Initial balance: ${self.initial_balance}")
+        self.active_trades = 0  # Reset active trades counter
+        
+        print(f"Session tracking reset. Initial balance: ${self.initial_balance:.2f}")
+        
+        # Make sure the starting balance is properly displayed
+        if config.SHOW_STARTING_BALANCE:
+            print(f"💰 Starting session with balance: ${self.initial_balance:.2f}")
+            # Ensure starting balance is prominently displayed
+            print(f"=====================================")
+            print(f"🔷 STARTING BALANCE: ${self.initial_balance:.2f} 🔷")
+            print(f"=====================================")
+        
+        # Update stats with initial balance
+        if self.callbacks['stats_update']:
+            self.stats['initial_balance'] = self.initial_balance
+            self.stats['session_profit_loss'] = 0.0
+            self.stats['starting_balance'] = self.initial_balance  # Add starting balance for display
+            
+            # Immediately send an update so the frontend shows the correct initial values
+            self.callbacks['stats_update'](self.get_stats())
+            
+            # Also send a session stats update
+            if self.callbacks['trade_update']:
+                self.callbacks['trade_update']({
+                    'type': 'session_reset',
+                    'initial_balance': self.initial_balance,
+                    'session_profit_loss': 0.0,
+                    'timestamp': datetime.now().isoformat()
+                })
         
     def check_profit_loss_limits(self):
         """Check if take profit or stop loss limits are hit"""
@@ -651,3 +777,74 @@ class TradingBot:
                 'session_profit_loss': self.session_profit_loss,
                 'timestamp': datetime.now().isoformat()
             })
+    
+    def _verify_trade_result(self, contract_id, trade_info, signal=None):
+        """Verify trade result with the real Deriv API to ensure accurate PnL"""
+        
+        def contract_update_callback(data):
+            if data.get("error"):
+                print(f"❌ Contract verification error: {data['error']['message']}")
+                return
+                
+            contract = data.get("proposal_open_contract", {})
+            if not contract:
+                return
+                
+            # Check if the contract is finished
+            if contract.get("status") == "open":
+                # Contract still running, wait for completion
+                return
+                
+            # Contract is finished, get the actual result
+            is_won = bool(contract.get("is_sold") and contract.get("profit") > 0)
+            profit_amount = float(contract.get("profit", 0))
+            
+            print(f"🔍 VERIFIED CONTRACT RESULT: {'WIN' if is_won else 'LOSS'}")
+            print(f"   Contract ID: {contract_id}")
+            print(f"   Actual Profit: ${profit_amount:.2f}")
+            
+            # Update trade info with verified result
+            trade_info['verified_result'] = 'win' if is_won else 'loss'
+            trade_info['verified_profit'] = profit_amount
+            trade_info['status'] = 'completed'
+            
+            # Check if the simulated result was wrong
+            if (is_won and trade_info.get('result') == 'loss') or (not is_won and trade_info.get('result') == 'win'):
+                print(f"⚠️ RESULT CORRECTION: Simulated {trade_info.get('result')} → Actual {'win' if is_won else 'loss'}")
+                
+                # Correct trade stats
+                if is_won:
+                    if trade_info.get('result') == 'loss':
+                        self.stats['losing_trades'] -= 1
+                        self.stats['winning_trades'] += 1
+                else:
+                    if trade_info.get('result') == 'win':
+                        self.stats['winning_trades'] -= 1
+                        self.stats['losing_trades'] += 1
+                
+                # Update winning rate
+                if self.stats['total_trades'] > 0:
+                    self.stats['winning_rate'] = (self.stats['winning_trades'] / self.stats['total_trades']) * 100
+                
+                # Correct PnL if it's different
+                if abs(trade_info.get('profit_loss', 0) - profit_amount) > 0.01:
+                    pnl_correction = profit_amount - trade_info.get('profit_loss', 0)
+                    self.session_profit_loss += pnl_correction
+                    self.stats['total_profit_loss'] += pnl_correction
+                    
+                    print(f"💰 PNL CORRECTION: ${pnl_correction:+.2f} → New session P&L: ${self.session_profit_loss:.2f}")
+                    
+                    # Update trade info
+                    trade_info['profit_loss'] = profit_amount
+                    trade_info['session_profit_loss'] = self.session_profit_loss
+                
+                # Send updated info to frontend
+                if self.callbacks.get('trade_update'):
+                    self.callbacks['trade_update'](trade_info)
+                
+                if self.callbacks['stats_update']:
+                    self.callbacks['stats_update'](self.stats)
+                
+        # Start monitoring the contract for status updates
+        if contract_id:
+            self.api.monitor_contract(contract_id, contract_update_callback)

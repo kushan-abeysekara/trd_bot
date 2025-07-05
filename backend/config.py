@@ -3,8 +3,11 @@
 # Trading Settings
 DEFAULT_TRADE_AMOUNT = 1.0
 MIN_TRADE_AMOUNT = 0.35  # Minimum allowed trade amount in USD
-DEFAULT_DURATION_TICKS = 5
+DEFAULT_DURATION_SECONDS = 15  # Changed from ticks to seconds-based trading
+MIN_DURATION_SECONDS = 10
+MAX_DURATION_SECONDS = 30
 TRADE_INTERVAL_SECONDS = 30
+ONE_TRADE_AT_A_TIME = True  # Only allow one active trade at a time
 
 # Simulation Settings (for demo purposes)
 SIMULATED_WIN_RATE = 0.6  # 60% win rate
@@ -21,3 +24,8 @@ FLASK_DEBUG = True
 
 # Frontend Settings
 REACT_PORT = 3000
+
+# Balance Tracking Settings
+SHOW_STARTING_BALANCE = True  # Display starting account balance
+TRACK_SESSION_PNL = True      # Track profit/loss by session
+ACCURATE_PNL_CALCULATION = True  # Use more accurate PnL calculation

@@ -3,13 +3,25 @@ from flask_cors import CORS
 from flask_socketio import SocketIO, emit
 import threading
 import time
+import os
 from trading_bot import TradingBot
 import config
 
+# Load environment variables
+from dotenv import load_dotenv
+load_dotenv()
+
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'deriv-trading-bot-secret'
-CORS(app, origins="*")
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading', logger=True, engineio_logger=True)
+
+# Configure CORS with environment variable or fallback to default origins
+cors_origins = os.getenv('CORS_ORIGINS', 'http://localhost:3000,http://127.0.0.1:3000,https://tradingbot-4iuxi.ondigitalocean.app')
+allowed_origins = [origin.strip() for origin in cors_origins.split(',')]
+
+print(f"🌐 CORS configured for origins: {allowed_origins}")
+
+CORS(app, origins=allowed_origins, credentials=True)
+socketio = SocketIO(app, cors_allowed_origins=allowed_origins, async_mode='threading', logger=True, engineio_logger=True)
 
 # Global bot instance
 bot_instance = None
@@ -52,7 +64,19 @@ def connect_api():
                 socketio.emit('balance_update', {'balance': current_balance})
             
             # Also emit session stats update
-            if 'session_pnl' in trade_info:
+            if 'session_profit_loss' in trade_info:
+                session_stats = {
+                    'session_profit_loss': trade_info['session_profit_loss'],
+                    'initial_balance': bot_instance.initial_balance,
+                    'current_balance': trade_info.get('balance_after', bot_instance.get_balance()),
+                    'take_profit_enabled': bot_instance.take_profit_enabled,
+                    'take_profit_amount': bot_instance.take_profit_amount,
+                    'stop_loss_enabled': bot_instance.stop_loss_enabled,
+                    'stop_loss_amount': bot_instance.stop_loss_amount
+                }
+                socketio.emit('session_stats_update', session_stats)
+            # Fallback for older trade info structure
+            elif 'session_pnl' in trade_info:
                 session_stats = {
                     'session_profit_loss': trade_info['session_pnl'],
                     'initial_balance': bot_instance.initial_balance,
@@ -96,7 +120,7 @@ def connect_api():
 def start_trading():
     """Start automated trading"""
     global bot_instance
-    from config import MIN_TRADE_AMOUNT, DEFAULT_TRADE_AMOUNT
+    from config import MIN_TRADE_AMOUNT, DEFAULT_TRADE_AMOUNT, DEFAULT_DURATION_SECONDS
     
     if not bot_instance:
         return jsonify({'error': 'Not connected to API'}), 400
@@ -108,7 +132,9 @@ def start_trading():
     if amount < MIN_TRADE_AMOUNT:
         return jsonify({'error': f'Trade amount must be at least ${MIN_TRADE_AMOUNT}'}), 400
         
-    duration = int(data.get('duration', 5))
+    # We use the default duration as a base, but actual duration is now determined 
+    # dynamically by each strategy signal
+    duration = DEFAULT_DURATION_SECONDS
     
     try:
         bot_instance.start_trading(amount, duration)
@@ -184,6 +210,25 @@ def get_stats():
         
     try:
         stats = bot_instance.get_stats()
+        
+        # Ensure balance and session info is properly included
+        # This will be prominently displayed on the frontend
+        stats['initial_balance'] = bot_instance.initial_balance
+        stats['starting_balance'] = bot_instance.initial_balance
+        stats['current_balance'] = bot_instance.get_balance()
+        stats['session_profit_loss'] = bot_instance.session_profit_loss
+        
+        # Calculate accurate PnL percentage
+        if bot_instance.initial_balance > 0:
+            stats['session_pnl_percent'] = (bot_instance.session_profit_loss / bot_instance.initial_balance) * 100
+        else:
+            stats['session_pnl_percent'] = 0
+            
+        stats['active_trades'] = bot_instance.active_trades  # Include active trades count
+        
+        # Additional useful info
+        if config.SHOW_STARTING_BALANCE:
+            stats['show_starting_balance'] = True
         return jsonify(stats), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -485,4 +530,13 @@ def handle_strategy_update_request():
 
 
 if __name__ == '__main__':
-    socketio.run(app, debug=True, host='0.0.0.0', port=5000, allow_unsafe_werkzeug=True)
+    # Get configuration from environment variables
+    host = os.getenv('HOST', '0.0.0.0')
+    port = int(os.getenv('PORT', 5000))
+    debug = os.getenv('FLASK_DEBUG', 'True').lower() == 'true'
+    
+    print(f"🚀 Starting server on {host}:{port}")
+    print(f"🌐 CORS configured for: {allowed_origins}")
+    print(f"🔧 Debug mode: {debug}")
+    
+    socketio.run(app, debug=debug, host=host, port=port, allow_unsafe_werkzeug=True)
