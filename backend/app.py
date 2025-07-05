@@ -525,5 +525,10 @@ def socket_test():
     }), 200
 
 
+@app.route('/api/test-socket')
+def test_socket():
+    return jsonify({"status": "Backend is working"}), 200
+
+
 if __name__ == '__main__':
     socketio.run(app, debug=FLASK_DEBUG, host=FLASK_HOST, port=FLASK_PORT, allow_unsafe_werkzeug=True)
