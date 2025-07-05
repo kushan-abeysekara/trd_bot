@@ -261,6 +261,19 @@ class StrategyEngine:
         signals = []
         strategy_status = {}
         
+        # Add force signal mechanism if enabled in config
+        try:
+            import config
+            if hasattr(config, 'FORCE_STRATEGY_SIGNALS') and config.FORCE_STRATEGY_SIGNALS:
+                # Force at least one signal every 10 scans if no signals generated
+                if self.total_scans % 10 == 0 and len(signals) == 0:
+                    force_signal = self._generate_force_signal()
+                    if force_signal:
+                        signals.append(force_signal)
+                        print(f"🔧 FORCE SIGNAL GENERATED: {force_signal.strategy_name}")
+        except:
+            pass
+        
         # Scan all 35 strategies in real-time
         for i in range(1, 36):
             try:
@@ -289,8 +302,8 @@ class StrategyEngine:
             # Sort by confidence (highest first)
             signals.sort(key=lambda x: x.confidence, reverse=True)
             
-            # Send signals with confidence > 0.70 (reduced threshold for more trading)
-            high_confidence_signals = [s for s in signals if s.confidence > 0.70]
+            # Send signals with confidence > 0.55 (reduced threshold for more trading)
+            high_confidence_signals = [s for s in signals if s.confidence > 0.55]
             
             if high_confidence_signals:
                 # Send the best signal immediately
@@ -2109,3 +2122,27 @@ class StrategyEngine:
         self.total_scans = 0
         self.signals_generated = 0
         self.last_strategy_scan = {}
+        
+    def _generate_force_signal(self) -> Optional[TradeSignal]:
+        """Generate a force signal for testing purposes when no natural signals occur"""
+        if len(self.tick_history) < 5:
+            return None
+            
+        # Create a simple force signal based on basic conditions
+        current_price = self.tick_history[-1].price
+        last_tick = self.tick_history[-1].color
+        
+        # Simple signal based on last tick color and basic momentum
+        direction = 'CALL' if last_tick == 'red' else 'PUT'  # Contrarian approach
+        confidence = 0.60  # Moderate confidence for force signals
+        
+        conditions = ["Force signal for testing", f"Last tick: {last_tick}", f"Price: {current_price:.2f}"]
+        
+        return TradeSignal(
+            strategy_name="Force Signal Generator",
+            direction=direction,
+            confidence=confidence,
+            hold_time=12,
+            entry_reason="Force signal to ensure trading activity",
+            conditions_met=conditions
+        )

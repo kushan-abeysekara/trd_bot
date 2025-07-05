@@ -261,7 +261,7 @@ function App() {
       // Clear message after 3 seconds
       setTimeout(() => {
         setMessage('');
-      }, 3000);
+      }, 8080);
     } catch (error) {
       setMessage(error.response?.data?.error || 'Failed to refresh balance');
       setMessageType('error');

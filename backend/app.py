@@ -18,10 +18,17 @@ app.config['SECRET_KEY'] = 'deriv-trading-bot-secret'
 cors_origins = os.getenv('CORS_ORIGINS', 'http://localhost:3000,http://127.0.0.1:3000,https://tradingbot-4iuxi.ondigitalocean.app')
 allowed_origins = [origin.strip() for origin in cors_origins.split(',')]
 
+# Add additional CORS origins if needed
+additional_origins = ['ws://localhost:5000', 'wss://tradingbot-4iuxi.ondigitalocean.app']
+allowed_origins.extend(additional_origins)
+
 print(f"🌐 CORS configured for origins: {allowed_origins}")
 
-CORS(app, origins=allowed_origins, credentials=True)
-socketio = SocketIO(app, cors_allowed_origins=allowed_origins, async_mode='threading', logger=True, engineio_logger=True)
+CORS(app, origins=allowed_origins, credentials=True, supports_credentials=True, 
+     allow_headers=['Content-Type', 'Authorization'], 
+     methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])
+socketio = SocketIO(app, cors_allowed_origins=allowed_origins, async_mode='threading', 
+                   logger=True, engineio_logger=True, ping_timeout=120, ping_interval=25)
 
 # Global bot instance
 bot_instance = None

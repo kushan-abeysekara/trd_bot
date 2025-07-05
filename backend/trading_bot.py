@@ -34,9 +34,9 @@ class TradingBot:
         self.strategy_engine = StrategyEngine()
         self.strategy_scanning = False
         self.last_signal_time = 0
-        self.min_signal_interval = 2  # Reduced to 2 seconds for faster trading
+        self.min_signal_interval = 0.1  # Reduced to 0.1 seconds for faster trading
         self.last_strategy_signals = {}  # Track last signal time per strategy
-        self.strategy_cooldown = 8  # Reduced to 8 seconds per individual strategy
+        self.strategy_cooldown = 0.5  # Reduced to 0.5 seconds per individual strategy
         self.signal_count = 0  # Track total signals received
         self.active_trades = 0  # Track currently active trades
         
@@ -129,17 +129,17 @@ class TradingBot:
             # Enhanced price movement simulation for better strategy triggering
             
             # Base volatility with more variation
-            change = random.uniform(-0.4, 0.4)  # ±0.4% change (increased)
+            change = random.uniform(-0.6, 0.6)  # ±0.6% change (increased for more signals)
             
-            # Add volatility spikes (25% chance - increased)
-            if random.random() < 0.25:
+            # Add volatility spikes (35% chance - increased for more signals)
+            if random.random() < 0.35:
                 spike_intensity = random.uniform(0.6, 2.0)  # 0.6-2.0% spike (increased)
                 spike_direction = random.choice([-1, 1])
                 change += spike_direction * spike_intensity
                 print(f"📈 Price spike: {spike_direction * spike_intensity:.2f}%")
                 
-            # Add micro-trends (20% chance - increased)
-            if random.random() < 0.20:
+            # Add micro-trends (30% chance - increased for more signals)
+            if random.random() < 0.30:
                 trend_strength = random.uniform(0.15, 0.5)  # 0.15-0.5% trend
                 trend_direction = random.choice([-1, 1])
                 trend_length = random.randint(3, 8)  # 3-8 ticks in same direction
@@ -200,8 +200,8 @@ class TradingBot:
                 print(f"📊 Tick #{tick_counter}: Price={price:.2f}, RSI={indicators.get('rsi', 0):.1f}, "
                       f"Vol={indicators.get('volatility', 0):.2f}%, MACD={indicators.get('macd', 0):.3f}")
             
-            # Variable tick intervals for realistic market simulation (faster)
-            time.sleep(random.uniform(0.15, 0.8))  # 150ms to 800ms intervals
+            # Variable tick intervals for realistic market simulation (faster for more signals)
+            time.sleep(random.uniform(0.1, 0.5))  # 100ms to 500ms intervals (faster)
             
     def _handle_strategy_signal(self, signal: TradeSignal):
         """Handle trade signal from strategy engine - OPTIMIZED FOR FAST TRADING"""
@@ -209,6 +209,8 @@ class TradingBot:
         self.signal_count += 1
         
         print(f"📡 Signal #{self.signal_count} received: {signal.strategy_name} ({signal.confidence:.2f})")
+        print(f"   🕒 Hold time: {signal.hold_time}s | Direction: {signal.direction}")
+        print(f"   🎯 Active trades: {self.active_trades} | ONE_TRADE_AT_A_TIME: {config.ONE_TRADE_AT_A_TIME}")
         
         # Check if we already have an active trade and ONE_TRADE_AT_A_TIME is enabled
         if config.ONE_TRADE_AT_A_TIME and self.active_trades > 0:
@@ -216,7 +218,7 @@ class TradingBot:
             # Always enforce one trade at a time - don't allow multiple trades
             return
         
-        # Global signal interval check - much shorter now
+        # Global signal interval check - much shorter now for more trading
         if current_time - self.last_signal_time < self.min_signal_interval:
             remaining = self.min_signal_interval - (current_time - self.last_signal_time)
             print(f"⏰ Global cooldown - {remaining:.1f}s remaining")
@@ -226,13 +228,18 @@ class TradingBot:
         strategy_name = signal.strategy_name
         dynamic_cooldown = self.strategy_cooldown
         
-        # High-confidence signals get SHORTER cooldowns, not longer!
+        # High-confidence signals get MUCH SHORTER cooldowns!
         if signal.confidence > 0.85:
-            dynamic_cooldown = 4  # Only 4 seconds for high-confidence signals
+            dynamic_cooldown = 0.2  # Only 0.2 seconds for high-confidence signals
             print(f"🔥 High-confidence signal - reduced cooldown to {dynamic_cooldown}s")
         elif signal.confidence > 0.75:
-            dynamic_cooldown = 6  # 6 seconds for good signals
-        # else use default 8 seconds
+            dynamic_cooldown = 0.3  # 0.3 seconds for good signals
+        elif signal.confidence > 0.70:
+            dynamic_cooldown = 0.5  # 0.5 seconds for decent signals
+        elif signal.confidence > 0.60:
+            dynamic_cooldown = 0.8  # 0.8 seconds for fair signals
+        else:
+            dynamic_cooldown = 1.0  # 1 second for lower confidence
         
         if strategy_name in self.last_strategy_signals:
             time_since_last = current_time - self.last_strategy_signals[strategy_name]
@@ -241,9 +248,9 @@ class TradingBot:
                 print(f"❄️  Strategy {strategy_name} cooldown - {remaining_cooldown:.1f}s remaining")
                 return
         
-        # EMERGENCY BYPASS: If no trades for 30 seconds, accept any signal
-        if current_time - self.last_signal_time > 30:
-            print(f"🚨 EMERGENCY BYPASS: No trades for 30s, accepting signal!")
+        # EMERGENCY BYPASS: If no trades for 5 seconds, accept any signal
+        if current_time - self.last_signal_time > 5:
+            print(f"🚨 EMERGENCY BYPASS: No trades for 5s, accepting signal!")
             
         # Update timing trackers
         self.last_signal_time = current_time

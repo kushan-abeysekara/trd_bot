@@ -6,8 +6,9 @@ MIN_TRADE_AMOUNT = 0.35  # Minimum allowed trade amount in USD
 DEFAULT_DURATION_SECONDS = 15  # Changed from ticks to seconds-based trading
 MIN_DURATION_SECONDS = 10
 MAX_DURATION_SECONDS = 30
-TRADE_INTERVAL_SECONDS = 30
-ONE_TRADE_AT_A_TIME = True  # Only allow one active trade at a time
+TRADE_INTERVAL_SECONDS = 5  # Reduced from 30 to 5 seconds for more frequent trades
+ONE_TRADE_AT_A_TIME = False  # Allow multiple trades for testing
+FORCE_STRATEGY_SIGNALS = True  # Force more aggressive signal generation
 
 # Simulation Settings (for demo purposes)
 SIMULATED_WIN_RATE = 0.6  # 60% win rate
