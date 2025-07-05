@@ -638,49 +638,162 @@ code {
   font-weight: bold;
 }
 
-/* Take Profit and Stop Loss specific styling */
-.take-profit-section,
-.stop-loss-section {
-  border: 2px solid transparent;
-  border-radius: 8px;
-  padding: 15px;
-  margin: 10px 0;
-  transition: all 0.3s ease;
+/* New enhanced balance display styles */
+.balance-section {
+  background: linear-gradient(135deg, #f5f7fa 0%, #e4e7eb 100%);
+  border: 2px solid #d1d9e6;
+  border-radius: 12px;
+  padding: 20px;
+  margin: 20px 0 15px 0;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.05);
 }
 
-.take-profit-section.enabled {
-  border-color: #28a745;
-  background: rgba(40, 167, 69, 0.05);
+.balance-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(0,0,0,0.07);
 }
 
-.stop-loss-section.enabled {
-  border-color: #dc3545;
-  background: rgba(220, 53, 69, 0.05);
+.balance-row span:first-child {
+  font-weight: 600;
+  color: #495057;
 }
 
-/* Responsive adjustments for new components */
-@media (max-width: 768px) {
-  .input-with-button {
-    flex-direction: column;
-    gap: 10px;
+.balance-row span:last-child {
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+
+.balance-row.highlight {
+  margin-top: 10px;
+  padding-top: 12px;
+  border-top: 2px solid rgba(0,0,0,0.1);
+  border-bottom: none;
+}
+
+.balance-row.highlight span:first-child {
+  font-size: 1.15rem;
+  color: #2d3748;
+}
+
+.balance-row.highlight span:last-child {
+  font-size: 1.4rem;
+  font-weight: 800;
+}
+
+/* Enhanced profit and loss colors */
+.profit {
+  color: #38a169;
+  position: relative;
+}
+
+.profit::before {
+  content: '▲ ';
+  font-size: 0.8em;
+}
+
+.loss {
+  color: #e53e3e;
+  position: relative;
+}
+
+.loss::before {
+  content: '▼ ';
+  font-size: 0.8em;
+}
+
+/* Balance animation for profit */
+@keyframes profit-pulse {
+  0% {
+    text-shadow: 0 0 0px rgba(56, 161, 105, 0);
+  }
+  50% {
+    text-shadow: 0 0 10px rgba(56, 161, 105, 0.5);
+  }
+  100% {
+    text-shadow: 0 0 0px rgba(56, 161, 105, 0);
+  }
+}
+
+.balance-row.highlight .profit {
+  animation: profit-pulse 2s infinite;
+}
+
+/* Media queries for responsive design */
+@media (max-width: 576px) {
+  .balance-section {
+    padding: 15px;
+    margin: 15px 0 10px 0;
   }
   
-  .input-with-button input {
-    width: 100%;
+  .balance-row span:last-child {
+    font-size: 1rem;
   }
   
-  .session-stats {
-    margin: 10px 0;
-    padding: 12px;
+  .balance-row.highlight span:last-child {
+    font-size: 1.2rem;
+  }
+}
+
+@media (min-width: 992px) {
+  .balance-section {
+    transition: transform 0.3s ease;
   }
   
-  .stats-row {
-    font-size: 0.9rem;
+  .balance-section:hover {
+    transform: translateY(-5px);
   }
   
-  .checkbox-group {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 5px;
+  .balance-row.highlight span:last-child {
+    font-size: 1.5rem;
   }
+  
+  .balance-row.highlight .profit {
+    background: linear-gradient(90deg, rgba(56, 161, 105, 0.1) 0%, rgba(56, 161, 105, 0) 100%);
+    border-radius: 5px;
+    padding: 2px 8px;
+  }
+  
+  .balance-row.highlight .loss {
+    background: linear-gradient(90deg, rgba(229, 62, 62, 0.1) 0%, rgba(229, 62, 62, 0) 100%);
+    border-radius: 5px;
+    padding: 2px 8px;
+  }
+}
+
+/* Add these styles to your existing App.css file */
+
+.double-stake-badge {
+  background-color: #ffcc00;
+  color: #000;
+  font-weight: bold;
+  border-radius: 4px;
+  padding: 2px 4px;
+  margin-left: 8px;
+  font-size: 0.75rem;
+}
+
+.double-stake-text {
+  color: #ff9900;
+  font-weight: bold;
+  margin-left: 5px;
+}
+
+.trade-amount-container {
+  display: flex;
+  flex-direction: column;
+}
+
+.double-stake-info {
+  font-size: 0.75rem;
+  color: #888;
+  margin-top: 5px;
+  font-style: italic;
+}
+
+/* Add a special style for double stake trades in the history */
+.trade-item.double-stake {
+  border-left: 3px solid #ffcc00;
 }

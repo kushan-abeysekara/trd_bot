@@ -37,7 +37,13 @@ def connect_api():
         # Set up callbacks
         def on_connection_status(success, error=None):
             if success:
-                socketio.emit('connection_status', {'connected': True, 'balance': bot_instance.get_balance()})
+                initial_balance = bot_instance.get_balance()
+                bot_instance.initial_balance = initial_balance  # Ensure initial balance is set
+                socketio.emit('connection_status', {
+                    'connected': True, 
+                    'balance': initial_balance,
+                    'initial_balance': initial_balance
+                })
                 start_balance_updates()
             else:
                 socketio.emit('connection_status', {'connected': False, 'error': error})
@@ -76,9 +82,16 @@ def connect_api():
         def on_balance_update(balance_data):
             """Handle real-time balance updates"""
             if isinstance(balance_data, dict):
+                # Add real_profit calculation if not already present
+                if 'balance' in balance_data and 'initial_balance' in balance_data and 'real_profit' not in balance_data:
+                    balance_data['real_profit'] = balance_data['balance'] - balance_data['initial_balance']
                 socketio.emit('balance_update', balance_data)
             else:
-                socketio.emit('balance_update', {'balance': balance_data})
+                socketio.emit('balance_update', {
+                    'balance': balance_data,
+                    'initial_balance': bot_instance.initial_balance if hasattr(bot_instance, 'initial_balance') else balance_data,
+                    'real_profit': balance_data - (bot_instance.initial_balance if hasattr(bot_instance, 'initial_balance') else balance_data)
+                })
             
         bot_instance.set_callback('connection_status', on_connection_status)
         bot_instance.set_callback('trade_update', on_trade_update)

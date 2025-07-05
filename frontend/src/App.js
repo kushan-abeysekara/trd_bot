@@ -43,6 +43,8 @@ function App() {
     initial_balance: 0,
     current_balance: 0
   });
+  const [initialBalance, setInitialBalance] = useState(0);
+  const [realProfit, setRealProfit] = useState(0);
 
   useEffect(() => {
     // Initialize socket connection with environment-based URL
@@ -52,6 +54,9 @@ function App() {
       setIsConnected(data.connected);
       if (data.connected) {
         setBalance(data.balance || 0);
+        if (data.initial_balance) {
+          setInitialBalance(data.initial_balance);
+        }
         setMessage('Successfully connected to Deriv API');
         setMessageType('success');
         
@@ -72,6 +77,21 @@ function App() {
       setBalance(newBalance);
       balanceRef.current = newBalance;
       
+      // Update initial balance if this is the first update
+      if (data.is_initial || (data.initial_balance && initialBalance === 0)) {
+        setInitialBalance(data.initial_balance);
+      }
+      
+      // Update real profit if provided, otherwise calculate it
+      if ('real_profit' in data) {
+        setRealProfit(data.real_profit);
+      } else if (initialBalance > 0) {
+        setRealProfit(newBalance - initialBalance);
+      }
+      
+ setMessage(`💰`);
+  
+
       // Show balance change notification only if it's a significant change (not initial load)
       if (oldBalance > 0 && Math.abs(newBalance - oldBalance) > 0.01) {
         const change = newBalance - oldBalance;
@@ -149,7 +169,7 @@ function App() {
       newSocket.close();
       clearInterval(statsInterval);
     };
-  }, [isConnected]);
+  }, [isConnected, initialBalance]); // Added initialBalance to dependencies
 
   // Load available strategies
   const loadStrategies = async () => {
@@ -557,6 +577,24 @@ function App() {
             </div>
           </div>
 
+          {/* Add Starting Balance and Real Profit information */}
+          <div className="balance-section">
+            <div className="balance-row">
+              <span>Starting Balance:</span>
+              <span>{formatCurrency(initialBalance)}</span>
+            </div>
+            <div className="balance-row">
+              <span>Current Balance:</span>
+              <span>{formatCurrency(balance)}</span>
+            </div>
+            <div className="balance-row highlight">
+              <span>Real Profit:</span>
+              <span className={realProfit >= 0 ? 'profit' : 'loss'}>
+                {formatCurrency(realProfit)}
+              </span>
+            </div>
+          </div>
+
           <div className="balance-display" style={{ fontSize: '1.5rem', marginTop: '20px' }}>
             Total P&L: <span className={stats.total_profit_loss >= 0 ? 'profit' : 'loss'}>
               {formatCurrency(stats.total_profit_loss)}
@@ -728,6 +766,44 @@ function App() {
       </div>
     </div>
   );
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 }
 
 export default App;

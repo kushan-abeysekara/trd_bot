@@ -49,6 +49,13 @@ class TradingBot:
         self.initial_balance = 0.0
         self.session_profit_loss = 0.0
         
+        # Double stake pattern settings
+        self.trades_since_double = 0
+        self.next_double_trade = False
+        self.default_trade_amount = 1.0
+        self.trades_before_double = random.randint(2, 5)  # Random number between 2-5
+        self.double_stake_active = False  # Flag for UI notification
+        
     def set_callback(self, event: str, callback):
         """Set callback for events"""
         self.callbacks[event] = callback
@@ -70,11 +77,18 @@ class TradingBot:
     def start_trading(self, amount: float, duration: int = 1):  # Default to 1 tick
         """Start automated trading"""
         self.trade_amount = amount
+        self.default_trade_amount = amount  # Store the default amount
         self.duration_ticks = 1  # Always use 1 tick regardless of input
         self.is_running = True
         
         # Reset session tracking
         self.reset_session_tracking()
+        
+        # Reset double stake pattern
+        self.trades_since_double = 0
+        self.next_double_trade = False
+        self.trades_before_double = random.randint(2, 5)
+        self.double_stake_active = False
         
         # Start strategy scanning
         self.strategy_scanning = True
@@ -240,14 +254,31 @@ class TradingBot:
         # Execute trade based on signal
         contract_type = signal.direction  # 'CALL' or 'PUT'
         
+        # Check if it's time to double the stake
+        self.trades_since_double += 1
+        if self.trades_since_double >= self.trades_before_double:
+            self.next_double_trade = True
+            self.double_stake_active = True
+            self.trades_since_double = 0
+            self.trades_before_double = random.randint(2, 5)  # Reset for next cycle
+            print(f"💰 DOUBLE STAKE ACTIVATED for next trade! (after {self.trades_before_double} normal trades)")
+        
+        # Set the current trade amount (normal or doubled)
+        current_trade_amount = self.default_trade_amount * 2 if self.next_double_trade else self.default_trade_amount
+        
         print(f"🎯 EXECUTING TRADE #{self.stats['total_trades'] + 1}: {signal.strategy_name}")
         print(f"   Direction: {signal.direction} | Confidence: {signal.confidence:.2f} | Hold: {signal.hold_time}s")
+        if self.next_double_trade:
+            print(f"   💰 DOUBLE STAKE TRADE: ${current_trade_amount}")
         print(f"   Reason: {signal.entry_reason}")
         print(f"   Conditions: {', '.join(signal.conditions_met)}")
         print(f"   📊 Cooldown used: {dynamic_cooldown}s | Total signals: {self.signal_count}")
         
         # Place the trade asynchronously
-        trade_thread = threading.Thread(target=self._place_strategy_trade_async, args=(signal,))
+        trade_thread = threading.Thread(
+            target=self._place_strategy_trade_async, 
+            args=(signal, current_trade_amount)
+        )
         trade_thread.daemon = True
         trade_thread.start()
         
@@ -265,21 +296,26 @@ class TradingBot:
                     'total_strategies': 35,
                     'trade_number': self.stats['total_trades'] + 1,
                     'cooldown_used': dynamic_cooldown,
-                    'signals_received': self.signal_count
+                    'signals_received': self.signal_count,
+                    'double_stake': self.next_double_trade
                 })
             except Exception as e:
                 print(f"⚠️  Error sending signal to frontend: {e}")
-                
-    def _place_strategy_trade_async(self, signal: TradeSignal):
+    
+    def _place_strategy_trade_async(self, signal: TradeSignal, trade_amount=None):
         """Place a trade based on strategy signal (async version)"""
         try:
-            self._place_strategy_trade(signal)
+            self._place_strategy_trade(signal, trade_amount)
         except Exception as e:
             print(f"❌ Error placing strategy trade: {e}")
             
-    def _place_strategy_trade(self, signal: TradeSignal):
+    def _place_strategy_trade(self, signal: TradeSignal, trade_amount=None):
         """Place a trade based on strategy signal"""
         print(f"📋 Placing trade for {signal.strategy_name}...")
+        
+        # Use the specified trade amount or default
+        amount_to_trade = trade_amount if trade_amount is not None else self.trade_amount
+        is_double_stake = self.next_double_trade
         
         def proposal_callback(response):
             try:
@@ -308,7 +344,7 @@ class TradingBot:
                             trade_info = {
                                 'id': contract_id,
                                 'type': signal.direction,
-                                'amount': self.trade_amount,
+                                'amount': amount_to_trade,
                                 'buy_price': buy_price,
                                 'duration': signal.hold_time,  # Use signal hold time
                                 'timestamp': datetime.now().isoformat(),
@@ -316,11 +352,18 @@ class TradingBot:
                                 'strategy_name': signal.strategy_name,
                                 'strategy_confidence': signal.confidence,
                                 'entry_reason': signal.entry_reason,
-                                'conditions_met': signal.conditions_met
+                                'conditions_met': signal.conditions_met,
+                                'double_stake': is_double_stake
                             }
                             
                             self.trade_history.append(trade_info)
                             print(f"🎯 Trade placed: {contract_id} for {signal.strategy_name}")
+                            
+                            # If this was a double stake trade, reset the flag
+                            if self.next_double_trade:
+                                self.next_double_trade = False
+                                self.double_stake_active = False
+                                print(f"💰 Double stake trade complete. Returning to normal stake: ${self.default_trade_amount}")
                             
                             # Send trade update (non-blocking)
                             if self.callbacks['trade_update']:
@@ -349,54 +392,10 @@ class TradingBot:
                 
         # Get proposal (non-blocking)
         try:
-            self.api.get_proposal(signal.direction, self.duration_ticks, self.trade_amount, proposal_callback)
+            self.api.get_proposal(signal.direction, self.duration_ticks, amount_to_trade, proposal_callback)
         except Exception as e:
             print(f"❌ Error getting proposal: {e}")
-            
-    def _place_trade(self, contract_type: str):
-        """Place a single trade"""
-        def proposal_callback(response):
-            if response.get("error"):
-                print(f"Proposal error: {response['error']['message']}")
-                return
-                
-            proposal = response.get("proposal", {})
-            proposal_id = proposal.get("id")
-            ask_price = float(proposal.get("ask_price", 0))
-            
-            if proposal_id and ask_price > 0:
-                # Buy the contract
-                def buy_callback(buy_response):
-                    if buy_response.get("error"):
-                        print(f"Buy error: {buy_response['error']['message']}")
-                        return
-                        
-                    buy_data = buy_response.get("buy", {})
-                    contract_id = buy_data.get("contract_id")
-                    buy_price = float(buy_data.get("buy_price", 0))
-                    
-                    trade_info = {
-                        'id': contract_id,
-                        'type': contract_type,
-                        'amount': self.trade_amount,
-                        'buy_price': buy_price,
-                        'duration': self.duration_ticks,
-                        'timestamp': datetime.now().isoformat(),
-                        'status': 'active'
-                    }
-                    
-                    self.trade_history.append(trade_info)
-                    
-                    if self.callbacks['trade_update']:
-                        self.callbacks['trade_update'](trade_info)
-                        
-                    # Simulate trade result after duration
-                    self._simulate_trade_result(trade_info)
-                    
-                self.api.buy_contract(proposal_id, ask_price, buy_callback)
-                
-        self.api.get_proposal(contract_type, self.duration_ticks, self.trade_amount, proposal_callback)
-        
+
     def _simulate_trade_result(self, trade_info):
         """Simulate trade result for regular (non-strategy) trades"""
         def delayed_result():
@@ -500,16 +499,23 @@ class TradingBot:
             trade_info['strategy_name'] = signal.strategy_name
             trade_info['session_profit_loss'] = self.session_profit_loss
             trade_info['balance_after'] = updated_balance
+            trade_info['initial_balance'] = self.initial_balance
+            trade_info['real_profit'] = updated_balance - self.initial_balance
             
             print(f"💰 Trade Result: {trade_info['result'].upper()} | "
                   f"P&L: ${profit_loss:.2f} | "
                   f"Session P&L: ${self.session_profit_loss:.2f} | "
+                  f"Real Profit: ${trade_info['real_profit']:.2f} | "
                   f"New Balance: ${updated_balance:.2f} | "
                   f"Strategy: {signal.strategy_name}")
             
-            # Emit real-time balance update immediately
+            # Emit real-time balance update immediately with additional info
             if self.callbacks.get('balance_update'):
-                self.callbacks['balance_update']({'balance': updated_balance})
+                self.callbacks['balance_update']({
+                    'balance': updated_balance,
+                    'initial_balance': self.initial_balance,
+                    'real_profit': updated_balance - self.initial_balance
+                })
             
             # Emit complete trade update with all final info
             if self.callbacks.get('trade_update'):
@@ -603,7 +609,10 @@ class TradingBot:
             'indicators': self.strategy_engine.get_current_indicators() if hasattr(self.strategy_engine, 'get_current_indicators') else {},
             'min_signal_interval': self.min_signal_interval,
             'strategy_cooldown': self.strategy_cooldown,
-            'emergency_bypass_active': (current_time - self.last_signal_time > 30) if self.last_signal_time > 0 else False
+            'emergency_bypass_active': (current_time - self.last_signal_time > 30) if self.last_signal_time > 0 else False,
+            'double_stake_active': self.double_stake_active,
+            'trades_since_double': self.trades_since_double,
+            'trades_before_double': self.trades_before_double
         }
         
     def reset_session_tracking(self):
@@ -612,6 +621,17 @@ class TradingBot:
         self.session_profit_loss = 0.0
         print(f"Session tracking reset. Initial balance: ${self.initial_balance}")
         
+        # Add callback to notify frontend of initial balance
+        if self.callbacks['balance_update']:
+            try:
+                self.callbacks['balance_update']({
+                    'balance': self.initial_balance,
+                    'initial_balance': self.initial_balance,
+                    'is_initial': True
+                })
+            except Exception as e:
+                print(f"⚠️  Error sending initial balance update: {e}")
+
     def check_profit_loss_limits(self):
         """Check if take profit or stop loss limits are hit"""
         if not (self.take_profit_enabled or self.stop_loss_enabled):
