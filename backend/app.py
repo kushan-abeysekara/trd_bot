@@ -1,131 +1,496 @@
-from flask import Flask, jsonify
+from flask import Flask, request, jsonify
 from flask_cors import CORS
-from flask_jwt_extended import JWTManager
-from dotenv import load_dotenv
-import os
+from flask_socketio import SocketIO, emit
+import threading
+import time
+from trading_bot import TradingBot
 
-# Load environment variables
-load_dotenv()
+app = Flask(__name__)
+app.config['SECRET_KEY'] = 'deriv-trading-bot-secret'
+CORS(app, origins="*")
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading', logger=True, engineio_logger=True)
 
-# Import models and routes
-from models import db
-from routes.auth import auth_bp
-from routes.trading import trading_bp
-from routes.deriv_api import deriv_bp
-from routes.ai_analysis import ai_bp
-from routes.market_analysis import market_analysis_bp
-from routes.trading_bot import trading_bot_bp
+# Global bot instance
+bot_instance = None
+balance_update_thread = None
 
-def create_app():
-    """Create and configure the Flask application"""
-    app = Flask(__name__)
+
+@app.route('/api/connect', methods=['POST'])
+def connect_api():
+    """Connect to Deriv API with provided token"""
+    global bot_instance
     
-    # Configuration
-    app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key')
-    app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'sqlite:///trading_bot.db')
-    app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-    app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'jwt-secret-string')
-    app.config['JWT_ACCESS_TOKEN_EXPIRES'] = int(os.getenv('JWT_ACCESS_TOKEN_EXPIRES', 86400))  # 24 hours
+    data = request.get_json()
+    api_token = data.get('api_token')
     
-    # Initialize extensions
-    db.init_app(app)
-    jwt = JWTManager(app)
-    
-    # Configure CORS
-    cors_origins = os.getenv('CORS_ORIGINS', 'http://localhost:3000').split(',')
-    CORS(app, origins=cors_origins, supports_credentials=True, 
-         allow_headers=['Content-Type', 'Authorization'],
-         methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])
-    
-    # Register blueprints
-    app.register_blueprint(auth_bp)
-    app.register_blueprint(trading_bp)
-    app.register_blueprint(deriv_bp)
-    app.register_blueprint(market_analysis_bp)
-    app.register_blueprint(ai_bp)
-    app.register_blueprint(trading_bot_bp)  # Add this line
-    
-    # Create database tables and handle migrations
-    with app.app_context():
-        try:
-            # Import User here to avoid circular imports
-            from models.user import User
-            
-            # Create tables first
-            db.create_all()
-            print("Database tables created successfully")
-            
-            # Then run schema migrations
-            try:
-                User.migrate_schema()
-                print("Schema migrations completed successfully")
-            except Exception as migration_error:
-                print(f"Migration error (continuing anyway): {migration_error}")
-            
-        except Exception as e:
-            print(f"Error setting up database: {e}")
-            print("Continuing with application startup...")
-    
-    # Error handlers
-    @app.errorhandler(404)
-    def not_found(error):
-        return jsonify({'error': 'Endpoint not found'}), 404
-    
-    @app.errorhandler(500)
-    def internal_error(error):
-        print(f"Internal server error: {str(error)}")
-        return jsonify({'error': 'Internal server error'}), 500
-    
-    @jwt.expired_token_loader
-    def expired_token_callback(jwt_header, jwt_payload):
-        return jsonify({'error': 'Token has expired'}), 401
-    
-    @jwt.invalid_token_loader
-    def invalid_token_callback(error):
-        return jsonify({'error': 'Invalid token'}), 401
-    
-    @jwt.unauthorized_loader
-    def missing_token_callback(error):
-        return jsonify({'error': 'Authorization token is required'}), 401
-    
-    # Health check endpoint
-    @app.route('/api/health')
-    def health_check():
-        health_status = {
-            'status': 'healthy',
-            'message': 'TradingBot API is running',
-            'endpoints': {
-                'auth': '/api/auth',
-                'register': '/api/auth/register',
-                'login': '/api/auth/login',
-                'verify': '/api/auth/verify',
-                'trading': '/api/trading',
-                'setup_api': '/api/trading/setup-api',
-                'balance': '/api/trading/balance',
-                'market_analysis': '/api/market-analysis',  # New endpoint
-                'real_time_analysis': '/api/market-analysis/real-time',  # New endpoint
-            }
-        }
+    if not api_token:
+        return jsonify({'error': 'API token is required'}), 400
         
-        # Test database connection
-        try:
-            from models.user import User
-            if User.ensure_database_connection():
-                health_status['database'] = 'connected'
+    try:
+        # Create new bot instance
+        bot_instance = TradingBot(api_token)
+        
+        # Set up callbacks
+        def on_connection_status(success, error=None):
+            if success:
+                socketio.emit('connection_status', {'connected': True, 'balance': bot_instance.get_balance()})
+                start_balance_updates()
             else:
-                health_status['database'] = 'disconnected'
-                health_status['status'] = 'degraded'
-        except Exception as e:
-            health_status['database'] = 'error'
-            health_status['database_error'] = str(e)
-            health_status['status'] = 'degraded'
+                socketio.emit('connection_status', {'connected': False, 'error': error})
+                
+        def on_trade_update(trade_info):
+            # Emit trade update first
+            socketio.emit('trade_update', trade_info)
+            
+            # Emit balance update if included in trade info
+            if 'balance_after' in trade_info:
+                socketio.emit('balance_update', {'balance': trade_info['balance_after']})
+            else:
+                # Fallback to getting current balance
+                current_balance = bot_instance.get_balance()
+                socketio.emit('balance_update', {'balance': current_balance})
+            
+            # Also emit session stats update
+            if 'session_pnl' in trade_info:
+                session_stats = {
+                    'session_profit_loss': trade_info['session_pnl'],
+                    'initial_balance': bot_instance.initial_balance,
+                    'current_balance': trade_info.get('balance_after', bot_instance.get_balance()),
+                    'take_profit_enabled': bot_instance.take_profit_enabled,
+                    'take_profit_amount': bot_instance.take_profit_amount,
+                    'stop_loss_enabled': bot_instance.stop_loss_enabled,
+                    'stop_loss_amount': bot_instance.stop_loss_amount
+                }
+                socketio.emit('session_stats_update', session_stats)
+            
+        def on_stats_update(stats):
+            socketio.emit('stats_update', stats)
+            
+        def on_strategy_signal(signal_data):
+            socketio.emit('strategy_signal', signal_data)
+            
+        def on_balance_update(balance_data):
+            """Handle real-time balance updates"""
+            if isinstance(balance_data, dict):
+                socketio.emit('balance_update', balance_data)
+            else:
+                socketio.emit('balance_update', {'balance': balance_data})
+            
+        bot_instance.set_callback('connection_status', on_connection_status)
+        bot_instance.set_callback('trade_update', on_trade_update)
+        bot_instance.set_callback('stats_update', on_stats_update)
+        bot_instance.set_callback('strategy_signal', on_strategy_signal)
+        bot_instance.set_callback('balance_update', on_balance_update)
         
-        return jsonify(health_status), 200
+        # Connect to API
+        bot_instance.connect()
+        
+        return jsonify({'message': 'Connecting to Deriv API...'}), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/start-trading', methods=['POST'])
+def start_trading():
+    """Start automated trading"""
+    global bot_instance
     
-    return app
+    if not bot_instance:
+        return jsonify({'error': 'Not connected to API'}), 400
+        
+    data = request.get_json()
+    amount = float(data.get('amount', 1.0))
+    duration = int(data.get('duration', 5))
+    
+    try:
+        bot_instance.start_trading(amount, duration)
+        return jsonify({'message': 'Trading started'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/stop-trading', methods=['POST'])
+def stop_trading():
+    """Stop automated trading"""
+    global bot_instance
+    
+    if not bot_instance:
+        return jsonify({'error': 'Not connected to API'}), 400
+        
+    try:
+        bot_instance.stop_trading()
+        return jsonify({'message': 'Trading stopped'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/balance', methods=['GET'])
+def get_balance():
+    """Get current balance"""
+    global bot_instance
+    
+    if not bot_instance:
+        return jsonify({'error': 'Not connected to API'}), 400
+        
+    try:
+        # Refresh balance from server before returning
+        bot_instance.api.refresh_balance()
+        balance = bot_instance.get_balance()
+        return jsonify({'balance': balance}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/refresh-balance', methods=['POST'])
+def refresh_balance():
+    """Manually refresh balance from Deriv API"""
+    global bot_instance
+    
+    if not bot_instance:
+        return jsonify({'error': 'Not connected to API'}), 400
+        
+    try:
+        # Force refresh balance from server
+        bot_instance.api.refresh_balance()
+        
+        # Wait a moment for the response
+        time.sleep(1)
+        
+        balance = bot_instance.get_balance()
+        
+        # Emit to all connected clients
+        socketio.emit('balance_update', {'balance': balance})
+        
+        return jsonify({'balance': balance, 'message': 'Balance refreshed'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/stats', methods=['GET'])
+def get_stats():
+    """Get trading statistics"""
+    global bot_instance
+    
+    if not bot_instance:
+        return jsonify({'error': 'Not connected to API'}), 400
+        
+    try:
+        stats = bot_instance.get_stats()
+        return jsonify(stats), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/trade-history', methods=['GET'])
+def get_trade_history():
+    """Get trade history"""
+    global bot_instance
+    
+    if not bot_instance:
+        return jsonify({'error': 'Not connected to API'}), 400
+        
+    try:
+        history = bot_instance.get_trade_history()
+        return jsonify({'trades': history}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/disconnect', methods=['POST'])
+def disconnect():
+    """Disconnect from API"""
+    global bot_instance, balance_update_thread
+    
+    if bot_instance:
+        bot_instance.disconnect()
+        bot_instance = None
+        
+    return jsonify({'message': 'Disconnected'}), 200
+
+
+@app.route('/api/strategies', methods=['GET'])
+def get_strategies():
+    """Get list of available strategies"""
+    global bot_instance
+    
+    if not bot_instance:
+        return jsonify({'error': 'Not connected to API'}), 400
+        
+    try:
+        strategies = bot_instance.get_active_strategies()
+        return jsonify({'strategies': strategies}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/strategy-status', methods=['GET'])
+def get_strategy_status():
+    """Get real-time status of all 35 strategies"""
+    global bot_instance
+    
+    if not bot_instance:
+        return jsonify({'error': 'Not connected to API'}), 400
+        
+    try:
+        status = bot_instance.strategy_engine.get_strategy_status()
+        return jsonify(status), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/strategy-performance', methods=['GET'])
+def get_strategy_performance():
+    """Get performance summary of all strategies"""
+    global bot_instance
+    
+    if not bot_instance:
+        return jsonify({'error': 'Not connected to API'}), 400
+        
+    try:
+        performance = bot_instance.strategy_engine.get_performance_summary()
+        return jsonify(performance), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/reset-strategy-stats', methods=['POST'])
+def reset_strategy_stats():
+    """Reset strategy performance statistics"""
+    global bot_instance
+    
+    if not bot_instance:
+        return jsonify({'error': 'Not connected to API'}), 400
+        
+    try:
+        bot_instance.strategy_engine.reset_performance_stats()
+        return jsonify({'message': 'Strategy statistics reset'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/indicators', methods=['GET'])
+def get_indicators():
+    """Get current technical indicators"""
+    global bot_instance
+    
+    if not bot_instance:
+        return jsonify({'error': 'Not connected to API'}), 400
+        
+    try:
+        indicators = bot_instance.get_strategy_indicators()
+        return jsonify(indicators), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/trading-mode', methods=['POST'])
+def set_trading_mode():
+    """Set trading mode (random or strategy)"""
+    global bot_instance
+    
+    if not bot_instance:
+        return jsonify({'error': 'Not connected to API'}), 400
+        
+    data = request.get_json()
+    mode = data.get('mode', 'strategy')
+    
+    if mode not in ['random', 'strategy']:
+        return jsonify({'error': 'Invalid mode. Use "random" or "strategy"'}), 400
+        
+    try:
+        bot_instance.set_trading_mode(mode)
+        return jsonify({'message': f'Trading mode set to {mode}'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/set-take-profit', methods=['POST'])
+def set_take_profit():
+    """Set take profit settings"""
+    global bot_instance
+    
+    if not bot_instance:
+        return jsonify({'error': 'Not connected to API'}), 400
+        
+    data = request.get_json()
+    enabled = data.get('enabled', False)
+    amount = float(data.get('amount', 0.0))
+    
+    try:
+        bot_instance.set_take_profit(enabled, amount)
+        return jsonify({
+            'message': f'Take profit {"enabled" if enabled else "disabled"}',
+            'enabled': enabled,
+            'amount': amount
+        }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/set-stop-loss', methods=['POST'])
+def set_stop_loss():
+    """Set stop loss settings"""
+    global bot_instance
+    
+    if not bot_instance:
+        return jsonify({'error': 'Not connected to API'}), 400
+        
+    data = request.get_json()
+    enabled = data.get('enabled', False)
+    amount = float(data.get('amount', 0.0))
+    
+    try:
+        bot_instance.set_stop_loss(enabled, amount)
+        return jsonify({
+            'message': f'Stop loss {"enabled" if enabled else "disabled"}',
+            'enabled': enabled,
+            'amount': amount
+        }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/bot-status', methods=['GET'])
+def get_bot_status():
+    """Get current bot status for debugging"""
+    global bot_instance
+    
+    if not bot_instance:
+        return jsonify({'error': 'Not connected to API'}), 400
+        
+    try:
+        status = bot_instance.get_bot_status()
+        return jsonify(status), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/bot-status', methods=['GET'])
+def get_bot_status():
+    """Get detailed bot status for debugging"""
+    global bot_instance
+    
+    if not bot_instance:
+        return jsonify({'error': 'Not connected to API'}), 400
+        
+    try:
+        status = bot_instance.get_bot_status()
+        return jsonify(status), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/reset-cooldowns', methods=['POST'])
+def reset_cooldowns():
+    """Reset all strategy cooldowns (emergency function)"""
+    global bot_instance
+    
+    if not bot_instance:
+        return jsonify({'error': 'Not connected to API'}), 400
+        
+    try:
+        # Reset all cooldown timers
+        bot_instance.last_signal_time = 0
+        bot_instance.last_strategy_signals = {}
+        bot_instance.signal_count = 0
+        
+        return jsonify({
+            'message': 'All cooldowns reset', 
+            'timestamp': time.time()
+        }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/session-stats', methods=['GET'])
+def get_session_stats():
+    """Get session trading statistics"""
+    global bot_instance
+    
+    if not bot_instance:
+        return jsonify({'error': 'Not connected to API'}), 400
+        
+    try:
+        stats = {
+            'session_profit_loss': bot_instance.session_profit_loss,
+            'initial_balance': bot_instance.initial_balance,
+            'current_balance': bot_instance.get_balance(),
+            'take_profit_enabled': bot_instance.take_profit_enabled,
+            'take_profit_amount': bot_instance.take_profit_amount,
+            'stop_loss_enabled': bot_instance.stop_loss_enabled,
+            'stop_loss_amount': bot_instance.stop_loss_amount,
+            'is_running': bot_instance.is_running
+        }
+        return jsonify(stats), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+def start_balance_updates():
+    """Start real-time balance and strategy updates"""
+    global balance_update_thread, bot_instance
+    
+    def update_balance():
+        while bot_instance and bot_instance.api.is_connected:
+            try:
+                # Request fresh balance from Deriv API
+                bot_instance.api.refresh_balance()
+                
+                # Also emit current balance
+                balance = bot_instance.get_balance()
+                socketio.emit('balance_update', {'balance': balance})
+                
+                # Get strategy status every cycle
+                if hasattr(bot_instance, 'strategy_engine'):
+                    strategy_status = bot_instance.strategy_engine.get_strategy_status()
+                    socketio.emit('strategy_status_update', strategy_status)
+                
+                time.sleep(3)  # Update every 3 seconds (more frequent)
+            except Exception as e:
+                print(f"Balance update error: {e}")
+                break
+                
+    if balance_update_thread is None or not balance_update_thread.is_alive():
+        balance_update_thread = threading.Thread(target=update_balance)
+        balance_update_thread.daemon = True
+        balance_update_thread.start()
+
+
+@socketio.on('connect')
+def handle_connect():
+    """Handle socket connection"""
+    print('Client connected')
+    emit('message', {'data': 'Connected to trading bot server'})
+
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    """Handle socket disconnection"""
+    print('Client disconnected')
+
+
+@socketio.on('request_strategy_update')
+def handle_strategy_update_request():
+    """Handle client request for strategy update"""
+    global bot_instance
+    if bot_instance and hasattr(bot_instance, 'strategy_engine'):
+        try:
+            # Send strategy status
+            strategy_status = bot_instance.strategy_engine.get_strategy_status()
+            emit('strategy_status_update', strategy_status)
+            
+            # Send performance summary
+            performance = bot_instance.strategy_engine.get_performance_summary()
+            emit('strategy_performance_update', performance)
+            
+            # Send current indicators
+            indicators = bot_instance.strategy_engine.get_current_indicators()
+            emit('indicators_update', indicators)
+            
+        except Exception as e:
+            emit('error', {'message': f'Strategy update error: {str(e)}'})
+
 
 if __name__ == '__main__':
-    app = create_app()
-    port = int(os.getenv('PORT', 5000))
-    # Disable auto-reload to prevent JWT token invalidation during development
-    app.run(debug=False, host='0.0.0.0', port=port, use_reloader=False)
+    socketio.run(app, debug=True, host='0.0.0.0', port=5000, allow_unsafe_werkzeug=True)

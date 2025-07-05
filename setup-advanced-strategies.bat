@@ -1,0 +1,62 @@
+@echo off
+echo 🚀 Setting up Deriv Trading Bot with Advanced Strategies...
+echo.
+
+REM Backend setup
+echo 📦 Installing Python dependencies...
+cd backend
+pip install -r requirements.txt
+
+if %ERRORLEVEL% EQU 0 (
+    echo ✅ Backend dependencies installed successfully!
+) else (
+    echo ❌ Failed to install backend dependencies!
+    pause
+    exit /b 1
+)
+
+REM Frontend setup
+echo 📦 Installing Node.js dependencies...
+cd ../frontend
+npm install
+
+if %ERRORLEVEL% EQU 0 (
+    echo ✅ Frontend dependencies installed successfully!
+) else (
+    echo ❌ Failed to install frontend dependencies!
+    pause
+    exit /b 1
+)
+
+echo.
+echo 🎯 Setup complete! The bot now includes 15 advanced trading strategies:
+echo.
+echo 1. Adaptive Mean Reversion Rebound
+echo 2. Micro-Trend Momentum Tracker
+echo 3. RSI-Tick Divergence Detector
+echo 4. Volatility Spike Fader
+echo 5. Tick Flow Strength Pulse
+echo 6. Double Confirmation Breakout
+echo 7. RSI Overextension Fade
+echo 8. Multi-Tick Pivot Bounce
+echo 9. MACD-Momentum Sync Engine
+echo 10. Time-of-Tick Scalper
+echo 11. Volatility Collapse Compression
+echo 12. Two-Step Confirmation Model
+echo 13. Inverted Divergence Flip
+echo 14. Cumulative Strength Index Pullback
+echo 15. Tri-Indicator Confluence Strategy
+echo.
+echo 🧠 Features:
+echo • Real-time strategy scanning
+echo • Technical indicator analysis (RSI, MACD, Bollinger Bands, etc.)
+echo • Confidence-based trade execution
+echo • Strategy name display for each trade
+echo • Live indicator dashboard
+echo.
+echo To start the application:
+echo 1. Run: python backend/app.py
+echo 2. Run: npm start (in frontend directory)
+echo 3. Open http://localhost:3000
+
+pause
