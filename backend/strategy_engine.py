@@ -1,6 +1,7 @@
 import numpy as np
 import time
 import threading
+import config
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from collections import deque
@@ -261,18 +262,24 @@ class StrategyEngine:
         signals = []
         strategy_status = {}
         
-        # Add force signal mechanism if enabled in config
+        # Add force signal mechanism FIRST if enabled in config
         try:
-            import config
             if hasattr(config, 'FORCE_STRATEGY_SIGNALS') and config.FORCE_STRATEGY_SIGNALS:
-                # Force at least one signal every 10 scans if no signals generated
-                if self.total_scans % 10 == 0 and len(signals) == 0:
+                # Force at least one signal every 3 scans if no signals generated (reduced for more trading)
+                if self.total_scans % 3 == 0:
                     force_signal = self._generate_force_signal()
                     if force_signal:
                         signals.append(force_signal)
                         print(f"🔧 FORCE SIGNAL GENERATED: {force_signal.strategy_name}")
-        except:
-            pass
+                        
+                # EMERGENCY: Generate signal on every 10th scan regardless
+                elif self.total_scans % 10 == 0:
+                    force_signal = self._generate_force_signal()
+                    if force_signal:
+                        signals.append(force_signal)
+                        print(f"🚨 EMERGENCY FORCE SIGNAL: {force_signal.strategy_name}")
+        except Exception as e:
+            print(f"⚠️ Force signal error: {e}")
         
         # Scan all 35 strategies in real-time
         for i in range(1, 36):
@@ -292,6 +299,26 @@ class StrategyEngine:
                     'error': str(e)
                 }
         
+        # Add additional force signals if still no natural signals
+        try:
+            import config
+            if hasattr(config, 'FORCE_STRATEGY_SIGNALS') and config.FORCE_STRATEGY_SIGNALS:
+                # Force at least one signal every 3 scans if no signals generated (reduced for more trading)
+                if self.total_scans % 3 == 0 and len(signals) == 0:
+                    force_signal = self._generate_force_signal()
+                    if force_signal:
+                        signals.append(force_signal)
+                        print(f"🔧 FORCE SIGNAL GENERATED: {force_signal.strategy_name}")
+                        
+                # EMERGENCY: Generate signal on every 10th scan regardless
+                elif self.total_scans % 10 == 0:
+                    force_signal = self._generate_force_signal()
+                    if force_signal:
+                        signals.append(force_signal)
+                        print(f"🚨 EMERGENCY FORCE SIGNAL: {force_signal.strategy_name}")
+        except Exception as e:
+            print(f"⚠️ Force signal error: {e}")
+        
         # Store strategy status for monitoring
         self.last_strategy_scan = strategy_status
         
@@ -302,8 +329,13 @@ class StrategyEngine:
             # Sort by confidence (highest first)
             signals.sort(key=lambda x: x.confidence, reverse=True)
             
-            # Send signals with confidence > 0.55 (reduced threshold for more trading)
-            high_confidence_signals = [s for s in signals if s.confidence > 0.55]
+            # Send signals with confidence > threshold
+            try:
+                threshold = getattr(config, 'SIGNAL_CONFIDENCE_THRESHOLD', 0.50)
+            except:
+                threshold = 0.50
+                
+            high_confidence_signals = [s for s in signals if s.confidence > threshold]
             
             if high_confidence_signals:
                 # Send the best signal immediately
@@ -314,10 +346,11 @@ class StrategyEngine:
                 active_strategies = [f"{s.strategy_name} ({s.confidence:.2f})" 
                                    for s in high_confidence_signals[:3]]
                 print(f"[STRATEGY ENGINE] 🎯 Sending signal: {best_signal.strategy_name} ({best_signal.confidence:.2f})")
-                print(f"[STRATEGY ENGINE] Other active: {', '.join(active_strategies[1:])}")
+                if len(active_strategies) > 1:
+                    print(f"[STRATEGY ENGINE] Other active: {', '.join(active_strategies[1:])}")
             
             # Also send strategy scan summary (less frequent logging)
-            if self.total_scans % 100 == 0:  # Every 100 scans
+            if self.total_scans % 50 == 0:  # Every 50 scans (reduced from 100)
                 active_count = len([s for s in strategy_status.values() if s['active']])
                 print(f"[STRATEGY ENGINE] Scan #{self.total_scans}: {active_count}/35 strategies active, {len(signals)} signals")
             
@@ -800,41 +833,32 @@ class StrategyEngine:
             if speeding_up:
                 conditions_met.append("Tick speed increasing")
                 
-                # EMA sharply moving
-                current_price = self.tick_history[-1].price
-                ema_diff = abs(current_price - self.indicators.ema5) / self.indicators.ema5
-                sharp_ema = ema_diff > 0.001  # 0.1% difference
+                # Check direction and momentum
+                last_tick = self.tick_history[-1].color
+                momentum_strong = abs(self.indicators.momentum) > 0.1
                 
-                if sharp_ema:
-                    conditions_met.append("EMA moving sharply")
+                if last_tick == 'green' and momentum_strong and self.indicators.momentum > 0:
+                    conditions_met.extend(["Green tick", "Positive momentum"])
+                    return TradeSignal(
+                        strategy_name=self.strategies[10],
+                        direction='CALL',
+                        confidence=0.72,
+                        hold_time=4,
+                        entry_reason="Fast tick speed with bullish momentum",
+                        conditions_met=conditions_met
+                    )
                     
-                    # Tick color matches MACD
-                    last_tick = self.tick_history[-1].color
-                    macd_up = self.indicators.macd > 0
-                    macd_down = self.indicators.macd < 0
+                elif last_tick == 'red' and momentum_strong and self.indicators.momentum < 0:
+                    conditions_met.extend(["Red tick", "Negative momentum"])
+                    return TradeSignal(
+                        strategy_name=self.strategies[10],
+                        direction='PUT',
+                        confidence=0.72,
+                        hold_time=4,
+                        entry_reason="Fast tick speed with bearish momentum",
+                        conditions_met=conditions_met
+                    )
                     
-                    if last_tick == 'green' and macd_up:
-                        conditions_met.append("Green tick matches bullish MACD")
-                        return TradeSignal(
-                            strategy_name=self.strategies[10],
-                            direction='CALL',
-                            confidence=0.75,
-                            hold_time=6,
-                            entry_reason="Time-based scalp signal up",
-                            conditions_met=conditions_met
-                        )
-                        
-                    elif last_tick == 'red' and macd_down:
-                        conditions_met.append("Red tick matches bearish MACD")
-                        return TradeSignal(
-                            strategy_name=self.strategies[10],
-                            direction='PUT',
-                            confidence=0.75,
-                            hold_time=6,
-                            entry_reason="Time-based scalp signal down",
-                            conditions_met=conditions_met
-                        )
-                        
         return None
         
     def _strategy_11(self) -> Optional[TradeSignal]:
@@ -2124,25 +2148,52 @@ class StrategyEngine:
         self.last_strategy_scan = {}
         
     def _generate_force_signal(self) -> Optional[TradeSignal]:
-        """Generate a force signal for testing purposes when no natural signals occur"""
-        if len(self.tick_history) < 5:
+        """Generate a force signal for testing purposes when no natural signals occur - ENHANCED"""
+        if len(self.tick_history) < 3:
             return None
             
-        # Create a simple force signal based on basic conditions
+        # Create a more dynamic force signal based on current market conditions
         current_price = self.tick_history[-1].price
         last_tick = self.tick_history[-1].color
         
-        # Simple signal based on last tick color and basic momentum
-        direction = 'CALL' if last_tick == 'red' else 'PUT'  # Contrarian approach
-        confidence = 0.60  # Moderate confidence for force signals
+        # Get some basic indicators if available
+        rsi = getattr(self.indicators, 'rsi', 50.0)
+        volatility = getattr(self.indicators, 'volatility', 1.0)
         
-        conditions = ["Force signal for testing", f"Last tick: {last_tick}", f"Price: {current_price:.2f}"]
+        # More intelligent direction selection
+        if rsi > 60:
+            direction = 'PUT'
+            reason = f"Force signal: RSI overbought ({rsi:.1f})"
+        elif rsi < 40:
+            direction = 'CALL'
+            reason = f"Force signal: RSI oversold ({rsi:.1f})"
+        else:
+            # Random direction for neutral conditions
+            import random
+            direction = random.choice(['CALL', 'PUT'])
+            reason = f"Force signal: Random direction ({direction})"
+        
+        # Dynamic confidence based on market conditions
+        if volatility > 1.5:
+            confidence = 0.65  # Higher confidence in volatile markets
+        else:
+            confidence = 0.55  # Lower confidence in calm markets
+        
+        conditions = [
+            "Force signal for testing", 
+            f"Last tick: {last_tick}", 
+            f"Price: {current_price:.2f}",
+            f"RSI: {rsi:.1f}",
+            f"Volatility: {volatility:.2f}%"
+        ]
+        
+        print(f"🔧 GENERATING FORCE SIGNAL: {direction} with confidence {confidence:.2f}")
         
         return TradeSignal(
             strategy_name="Force Signal Generator",
             direction=direction,
             confidence=confidence,
-            hold_time=12,
-            entry_reason="Force signal to ensure trading activity",
+            hold_time=15,  # 15 seconds
+            entry_reason=reason,
             conditions_met=conditions
         )
