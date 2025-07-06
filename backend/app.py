@@ -5,6 +5,7 @@ import time
 import os
 from trading_bot import TradingBot
 from config import CORS_ORIGINS, FLASK_HOST, FLASK_PORT, FLASK_DEBUG
+from cleanup import register_bot  # Import cleanup handler registration
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'deriv-trading-bot-secret'
@@ -23,6 +24,11 @@ latest_stats = {}
 latest_indicators = {}
 latest_session_stats = {}
 latest_strategy_signal = None
+
+# Global variables for client activity tracking
+last_client_activity = time.time()
+client_activity_timeout = 30  # seconds before considering client disconnected
+client_activity_thread = None
 
 def start_update_thread():
     """Start a thread to periodically update data from the bot"""
@@ -68,10 +74,69 @@ def start_update_thread():
         update_thread.start()
 
 
+def start_client_activity_monitor():
+    """Start a thread to monitor client activity and stop bot if client disconnects"""
+    global client_activity_thread
+    
+    def monitor_loop():
+        global last_client_activity, bot_instance
+        while bot_instance and bot_instance.api.is_connected:
+            try:
+                # Check if client has been inactive
+                time_since_last_activity = time.time() - last_client_activity
+                if time_since_last_activity > client_activity_timeout and bot_instance.is_running:
+                    print(f"⚠️ Client inactivity detected ({time_since_last_activity:.1f}s). Stopping bot for safety.")
+                    bot_instance.stop_trading()
+                    # Don't disconnect, just stop trading for safety
+                
+                time.sleep(5)  # Check every 5 seconds
+            except Exception as e:
+                print(f"Client activity monitor error: {e}")
+                time.sleep(5)
+    
+    if client_activity_thread is None or not client_activity_thread.is_alive():
+        client_activity_thread = threading.Thread(target=monitor_loop)
+        client_activity_thread.daemon = True
+        client_activity_thread.start()
+
+
+@app.route('/api/beacon', methods=['POST'])
+def client_beacon():
+    """Endpoint for client to signal it's still active"""
+    global last_client_activity, bot_instance
+    
+    # Update last client activity timestamp
+    last_client_activity = time.time()
+    
+    # Start monitoring thread if not already started
+    start_client_activity_monitor()
+    
+    # Return bot status info
+    is_connected = False
+    is_trading = False
+    
+    if bot_instance:
+        is_connected = bot_instance.api.is_connected
+        is_trading = bot_instance.is_running
+        
+    return jsonify({
+        'received': True,
+        'timestamp': last_client_activity,
+        'bot_connected': is_connected,
+        'bot_trading': is_trading
+    }), 200
+
+
 @app.route('/api/connect', methods=['POST'])
 def connect_api():
     """Connect to Deriv API with provided token"""
-    global bot_instance, latest_balance
+    global bot_instance, latest_balance, last_client_activity
+    
+    # Update client activity time
+    last_client_activity = time.time()
+    
+    # Start client activity monitor
+    start_client_activity_monitor()
     
     data = request.get_json()
     api_token = data.get('api_token')
@@ -82,6 +147,9 @@ def connect_api():
     try:
         # Create new bot instance
         bot_instance = TradingBot(api_token)
+        
+        # Register bot with cleanup handler
+        register_bot(bot_instance)
         
         # Set up callbacks
         def on_connection_status(success, error=None):
@@ -482,7 +550,10 @@ def get_latest_signal():
 @app.route('/api/updates', methods=['GET'])
 def get_updates():
     """Get all latest updates in one call (efficient polling)"""
-    global latest_balance, latest_trades, latest_stats, latest_indicators, latest_session_stats, latest_strategy_signal, bot_instance
+    global latest_balance, latest_trades, latest_stats, latest_indicators, latest_session_stats, latest_strategy_signal, bot_instance, last_client_activity
+    
+    # Update client activity time
+    last_client_activity = time.time()
     
     is_connected = bot_instance and bot_instance.api.is_connected if bot_instance else False
     is_trading = bot_instance and bot_instance.is_running if bot_instance else False
@@ -503,4 +574,19 @@ def get_updates():
 
 
 if __name__ == '__main__':
+    # Register cleanup handler
+    import atexit
+    
+    def cleanup_on_exit():
+        global bot_instance
+        print("Server shutting down, cleaning up resources...")
+        if bot_instance:
+            if bot_instance.is_running:
+                print("Stopping trading bot...")
+                bot_instance.stop_trading()
+            print("Disconnecting from API...")
+            bot_instance.disconnect()
+    
+    atexit.register(cleanup_on_exit)
+    
     app.run(debug=FLASK_DEBUG, host=FLASK_HOST, port=FLASK_PORT)
