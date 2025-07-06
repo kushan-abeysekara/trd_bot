@@ -171,39 +171,39 @@ For production, you can use Nginx as a reverse proxy:
    sudo systemctl restart nginx
    ```
 
-## WebSocket Configuration (Important!)
+## Troubleshooting
 
-WebSockets require special configuration to work correctly in production:
+### "Invalid Host header" Error
+- Make sure you're using the production scripts
+- Check that `DANGEROUSLY_DISABLE_HOST_CHECK=true` is set in frontend/.env
+- Verify HOST=0.0.0.0 in frontend environment files
 
-### 1. Nginx WebSocket Configuration
+### Connection Issues
+- Check firewall settings
+- Verify correct ports are open
+- Ensure services are running on correct hosts (0.0.0.0, not localhost)
 
-Ensure your Nginx configuration includes proper WebSocket proxy settings:
+### CORS Errors
+- Update CORS_ORIGINS in backend/.env.production
+- Include your domain in allowed origins
+- Check protocol (http vs https) matches
 
-```nginx
-# WebSocket for Socket.IO
-location /socket.io/ {
-    proxy_pass http://localhost:5000/socket.io/;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "Upgrade";
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    
-    # WebSocket timeouts
-    proxy_read_timeout 3600s;
-    proxy_send_timeout 3600s;
-}
+## Production URLs
 
-# Additional path if using API prefix
-location /api/socket.io/ {
-    proxy_pass http://localhost:5000/socket.io/;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "Upgrade";
-    proxy_set_header Host $host;
-    
-    # WebSocket timeouts
-    proxy_read_timeout 3600s;
+After deployment, your application will be available at:
+- **Frontend:** `http://your-server-ip:8080`
+- **Backend API:** `http://your-server-ip:5000/api`
+
+## Security Considerations
+
+1. **Use HTTPS in production**
+2. **Set strong Flask secret key**
+3. **Restrict CORS origins to your domain only**
+4. **Use environment variables for sensitive data**
+5. **Keep API tokens secure**
+6. **Regular security updates**
+
+For questions or support, check the main README.md file.
     proxy_send_timeout 3600s;
 }
 ```

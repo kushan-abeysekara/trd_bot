@@ -1,14 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import io from 'socket.io-client';
 import './App.css';
 
 // Configure API base URL based on environment
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
-const WS_URL = process.env.REACT_APP_WS_URL || 'http://localhost:5000';
 
 // Configure axios defaults
 axios.defaults.baseURL = API_BASE_URL;
+
+// Polling interval in milliseconds
+const POLLING_INTERVAL = 2000; // 2 seconds
 
 function App() {
   const [apiToken, setApiToken] = useState('');
@@ -45,169 +46,135 @@ function App() {
   });
   const [initialBalance, setInitialBalance] = useState(0);
   const [realProfit, setRealProfit] = useState(0);
+  
+  // Polling references
+  const pollingRef = useRef(null);
 
+  // Check connection status on initial load
   useEffect(() => {
-    // Initialize socket connection with optimized WebSocket settings
-    const socketOptions = {
-      path: API_BASE_URL.includes('/api') ? '/api/socket.io' : '/socket.io',
-      transports: ['websocket'], // Force WebSocket only, no polling fallback
-      upgrade: false, // Prevent transport upgrades
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000,
-      timeout: 20000
-    };
+    checkConnectionStatus();
+  }, []);
 
-    const newSocket = io(WS_URL, socketOptions);
+  // Setup polling when connected
+  useEffect(() => {
+    if (isConnected) {
+      startPolling();
+      return () => stopPolling();
+    }
+  }, [isConnected]);
 
-    newSocket.on('connect_error', (error) => {
-      console.error('Socket connection error:', error);
-      setMessage('WebSocket connection error. Please check your network.');
-      setMessageType('error');
-    });
-
-    newSocket.on('connection_status', (data) => {
-      setIsConnected(data.connected);
-      if (data.connected) {
-        setBalance(data.balance || 0);
-        if (data.initial_balance) {
-          setInitialBalance(data.initial_balance);
+  // Check if already connected when component mounts
+  const checkConnectionStatus = async () => {
+    try {
+      const response = await axios.get('/api/connection-status');
+      if (response.data.connected) {
+        setIsConnected(true);
+        setBalance(response.data.balance || 0);
+        if (response.data.initial_balance) {
+          setInitialBalance(response.data.initial_balance);
         }
         setMessage('Successfully connected to Deriv API');
         setMessageType('success');
         
-        // Load strategies and indicators when connected
-        loadStrategies();
-        loadIndicators();
-        loadSessionStats();
-      } else {
-        setMessage(data.error || 'Failed to connect to Deriv API');
-        setMessageType('error');
+        // Load initial data
+        fetchStats();
+        fetchTradeHistory();
+        fetchSessionStats();
+        fetchIndicators();
+        fetchLatestSignal();
       }
-    });
+    } catch (error) {
+      console.error('Error checking connection status:', error);
+    }
+  };
 
-    newSocket.on('balance_update', (data) => {
-      const newBalance = data.balance;
-      const oldBalance = balanceRef.current;
-      
-      setBalance(newBalance);
-      balanceRef.current = newBalance;
-      
-      // Update initial balance if this is the first update
-      if (data.is_initial || (data.initial_balance && initialBalance === 0)) {
-        setInitialBalance(data.initial_balance);
-      }
-      
-      // Update real profit if provided, otherwise calculate it
-      if ('real_profit' in data) {
-        setRealProfit(data.real_profit);
-      } else if (initialBalance > 0) {
-        setRealProfit(newBalance - initialBalance);
-      }
-      
- setMessage(`💰`);
-  
-
-      // Show balance change notification only if it's a significant change (not initial load)
-      if (oldBalance > 0 && Math.abs(newBalance - oldBalance) > 0.01) {
-        const change = newBalance - oldBalance;
-        const changeText = change > 0 ? `+${formatCurrency(change)}` : formatCurrency(change);
-        setMessage(`💰 Balance updated: ${changeText} → ${formatCurrency(newBalance)}`);
-        setMessageType(change > 0 ? 'success' : 'error');
+  // Start polling for updates
+  const startPolling = () => {
+    if (pollingRef.current) return;
+    
+    // Function to fetch all updates at once
+    const fetchUpdates = async () => {
+      try {
+        const response = await axios.get('/api/updates');
+        const data = response.data;
         
-        // Clear message after 4 seconds
-        setTimeout(() => {
-          setMessage('');
-        }, 4000);
-      }
-    });
-
-    newSocket.on('trade_update', (trade) => {
-      setTradeHistory(prev => {
-        const existingIndex = prev.findIndex(t => t.id === trade.id);
-        if (existingIndex >= 0) {
-          const updated = [...prev];
-          updated[existingIndex] = trade;
-          return updated;
-        } else {
-          return [trade, ...prev];
+        // Update all states from response
+        setIsConnected(data.connected);
+        setIsTrading(data.trading);
+        
+        // Update balance with notification if changed
+        if (data.balance !== balanceRef.current) {
+          updateBalance(data.balance);
         }
-      });
-    });
-
-    newSocket.on('stats_update', (newStats) => {
-      setStats(newStats);
-    });
-
-    newSocket.on('strategy_signal', (signalData) => {
-      setLastSignal(signalData);
-      setIndicators(signalData.indicators || {});
-      
-      // Show strategy signal notification
-      setMessage(`🎯 ${signalData.strategy_name} - ${signalData.direction} (${(signalData.confidence * 100).toFixed(0)}% confidence)`);
-      setMessageType('info');
-      
-      // Clear message after 5 seconds
-      setTimeout(() => {
-        setMessage('');
-      }, 5000);
-    });
-
-    // Handle session stats updates
-    newSocket.on('session_stats_update', (stats) => {
-      setSessionStats(stats);
-      setTakeProfitEnabled(stats.take_profit_enabled);
-      setTakeProfitAmount(stats.take_profit_amount);
-      setStopLossEnabled(stats.stop_loss_enabled);
-      setStopLossAmount(stats.stop_loss_amount);
-    });
-
-    // Listen for take profit/stop loss notifications
-    newSocket.on('trading_stopped', (data) => {
-      setIsTrading(false);
-      if (data.reason === 'take_profit') {
-        setMessage(`🎉 Take Profit Hit! Trading stopped. Profit: ${formatCurrency(data.amount)}`);
-        setMessageType('success');
-      } else if (data.reason === 'stop_loss') {
-        setMessage(`⚠️ Stop Loss Hit! Trading stopped. Loss: ${formatCurrency(data.amount)}`);
-        setMessageType('error');
+        
+        // Update other states
+        setStats(data.stats || stats);
+        
+        // Update trade history if there are new trades
+        if (data.recent_trades && data.recent_trades.length > 0) {
+          updateTradeHistory(data.recent_trades);
+        }
+        
+        // Update indicators
+        setIndicators(data.indicators || {});
+        
+        // Update session stats
+        setSessionStats(data.session_stats || sessionStats);
+        
+        // Update latest signal if available
+        if (data.latest_signal && (!lastSignal || 
+            data.latest_signal.timestamp > lastSignal.timestamp)) {
+          setLastSignal(data.latest_signal);
+          showSignalNotification(data.latest_signal);
+        }
+        
+        // Calculate real profit
+        if (data.balance && initialBalance > 0) {
+          setRealProfit(data.balance - initialBalance);
+        }
+        
+      } catch (error) {
+        console.error('Polling error:', error);
       }
-    });
-
-    // Set up periodic session stats updates
-    const statsInterval = setInterval(() => {
-      if (isConnected) {
-        loadSessionStats();
-      }
-    }, 5000); // Update every 5 seconds
-
-    return () => {
-      newSocket.close();
-      clearInterval(statsInterval);
     };
-  }, [isConnected, initialBalance]); // Added initialBalance to dependencies
+    
+    // Initial fetch
+    fetchUpdates();
+    
+    // Setup polling interval
+    pollingRef.current = setInterval(fetchUpdates, POLLING_INTERVAL);
+  };
 
-  // Load available strategies
-  const loadStrategies = async () => {
-    try {
-      await axios.get('/api/strategies');
-      // Note: strategies loaded but not stored in state since they're not used in UI
-    } catch (error) {
-      console.error('Failed to load strategies:', error);
+  // Stop polling
+  const stopPolling = () => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
     }
   };
 
-  // Load current indicators
-  const loadIndicators = async () => {
+  // Fetch stats separately
+  const fetchStats = async () => {
     try {
-      const response = await axios.get('/api/indicators');
-      setIndicators(response.data);
+      const response = await axios.get('/api/stats');
+      setStats(response.data);
     } catch (error) {
-      console.error('Failed to load indicators:', error);
+      console.error('Error fetching stats:', error);
     }
   };
 
-  // Load session stats
-  const loadSessionStats = async () => {
+  // Fetch trade history
+  const fetchTradeHistory = async () => {
+    try {
+      const response = await axios.get('/api/trade-history');
+      setTradeHistory(response.data.trades || []);
+    } catch (error) {
+      console.error('Error fetching trade history:', error);
+    }
+  };
+
+  // Fetch session stats
+  const fetchSessionStats = async () => {
     try {
       const response = await axios.get('/api/session-stats');
       setSessionStats(response.data);
@@ -216,7 +183,182 @@ function App() {
       setStopLossEnabled(response.data.stop_loss_enabled);
       setStopLossAmount(response.data.stop_loss_amount);
     } catch (error) {
-      console.error('Failed to load session stats:', error);
+      console.error('Error fetching session stats:', error);
+    }
+  };
+
+  // Fetch indicators
+  const fetchIndicators = async () => {
+    try {
+      const response = await axios.get('/api/indicators');
+      setIndicators(response.data);
+    } catch (error) {
+      console.error('Error fetching indicators:', error);
+    }
+  };
+
+  // Fetch latest signal
+  const fetchLatestSignal = async () => {
+    try {
+      const response = await axios.get('/api/latest-signal');
+      if (response.data && !response.data.message) {
+        setLastSignal(response.data);
+      }
+    } catch (error) {
+      console.error('Error fetching latest signal:', error);
+    }
+  };
+
+  // Show signal notification
+  const showSignalNotification = (signal) => {
+    setMessage(`🎯 ${signal.strategy_name} - ${signal.direction} (${(signal.confidence * 100).toFixed(0)}% confidence)`);
+    setMessageType('info');
+    
+    // Clear message after 5 seconds
+    setTimeout(() => {
+      setMessage('');
+    }, 5000);
+  };
+
+  // Update balance with notification
+  const updateBalance = (newBalance) => {
+    const oldBalance = balanceRef.current;
+    setBalance(newBalance);
+    balanceRef.current = newBalance;
+    
+    // Show balance change notification only if it's a significant change (not initial load)
+    if (oldBalance > 0 && Math.abs(newBalance - oldBalance) > 0.01) {
+      const change = newBalance - oldBalance;
+      const changeText = change > 0 ? `+${formatCurrency(change)}` : formatCurrency(change);
+      setMessage(`💰 Balance updated: ${changeText} → ${formatCurrency(newBalance)}`);
+      setMessageType(change > 0 ? 'success' : 'error');
+      
+      // Clear message after 4 seconds
+      setTimeout(() => {
+        setMessage('');
+      }, 4000);
+    }
+  };
+
+  // Update trade history
+  const updateTradeHistory = (newTrades) => {
+    setTradeHistory(prev => {
+      const updated = [...prev];
+      
+      // Add any new trades
+      for (const trade of newTrades) {
+        const existingIndex = updated.findIndex(t => t.id === trade.id);
+        if (existingIndex >= 0) {
+          // Update existing trade
+          updated[existingIndex] = trade;
+        } else {
+          // Add new trade
+          updated.unshift(trade);
+        }
+      }
+      
+      return updated;
+    });
+  };
+
+  const handleConnect = async () => {
+    if (!apiToken.trim()) {
+      setMessage('Please enter your API token');
+      setMessageType('error');
+      return;
+    }
+
+    try {
+      setMessage('Connecting to Deriv API...');
+      setMessageType('info');
+      
+      await axios.post('/api/connect', {
+        api_token: apiToken
+      });
+      
+      // Poll for connection status
+      let attempts = 0;
+      const maxAttempts = 10;
+      const checkStatus = setInterval(async () => {
+        try {
+          attempts++;
+          const response = await axios.get('/api/connection-status');
+          if (response.data.connected) {
+            clearInterval(checkStatus);
+            setIsConnected(true);
+            setBalance(response.data.balance || 0);
+            if (response.data.initial_balance) {
+              setInitialBalance(response.data.initial_balance);
+            }
+            setMessage('Successfully connected to Deriv API');
+            setMessageType('success');
+          } else if (attempts >= maxAttempts) {
+            clearInterval(checkStatus);
+            setMessage('Connection timed out. Please try again.');
+            setMessageType('error');
+          }
+        } catch (error) {
+          console.error('Error checking connection:', error);
+          if (attempts >= maxAttempts) {
+            clearInterval(checkStatus);
+            setMessage('Connection failed. Please try again.');
+            setMessageType('error');
+          }
+        }
+      }, 1000);
+      
+    } catch (error) {
+      setMessage(error.response?.data?.error || 'Failed to connect');
+      setMessageType('error');
+    }
+  };
+
+  const handleStartTrading = async () => {
+    try {
+      await axios.post('/api/start-trading', {
+        amount: tradeAmount
+      });
+      setIsTrading(true);
+      setMessage('Trading started successfully');
+      setMessageType('success');
+    } catch (error) {
+      setMessage(error.response?.data?.error || 'Failed to start trading');
+      setMessageType('error');
+    }
+  };
+
+  const handleStopTrading = async () => {
+    try {
+      await axios.post('/api/stop-trading');
+      setIsTrading(false);
+      setMessage('Trading stopped');
+      setMessageType('success');
+    } catch (error) {
+      setMessage(error.response?.data?.error || 'Failed to stop trading');
+      setMessageType('error');
+    }
+  };
+
+  const handleDisconnect = async () => {
+    try {
+      await axios.post('/api/disconnect');
+      setIsConnected(false);
+      setIsTrading(false);
+      setBalance(0);
+      setTradeHistory([]);
+      setStats({
+        total_trades: 0,
+        winning_trades: 0,
+        losing_trades: 0,
+        total_profit_loss: 0,
+        winning_rate: 0
+      });
+      setMessage('Disconnected from Deriv API');
+      setMessageType('success');
+      stopPolling();
+    } catch (error) {
+      setMessage(error.response?.data?.error || 'Failed to disconnect');
+      setMessageType('error');
     }
   };
 
@@ -275,75 +417,6 @@ function App() {
       }, 3000);
     } catch (error) {
       setMessage(error.response?.data?.error || 'Failed to refresh balance');
-      setMessageType('error');
-    }
-  };
-
-  const handleConnect = async () => {
-    if (!apiToken.trim()) {
-      setMessage('Please enter your API token');
-      setMessageType('error');
-      return;
-    }
-
-    try {
-      setMessage('Connecting to Deriv API...');
-      setMessageType('info');
-      
-      await axios.post('/api/connect', {
-        api_token: apiToken
-      });
-    } catch (error) {
-      setMessage(error.response?.data?.error || 'Failed to connect');
-      setMessageType('error');
-    }
-  };
-
-  const handleStartTrading = async () => {
-    try {
-      await axios.post('/api/start-trading', {
-        amount: tradeAmount
-        // Duration is now fixed at 1 tick, so we don't send it
-      });
-      setIsTrading(true);
-      setMessage('Trading started successfully');
-      setMessageType('success');
-    } catch (error) {
-      setMessage(error.response?.data?.error || 'Failed to start trading');
-      setMessageType('error');
-    }
-  };
-
-  const handleStopTrading = async () => {
-    try {
-      await axios.post('/api/stop-trading');
-      setIsTrading(false);
-      setMessage('Trading stopped');
-      setMessageType('success');
-    } catch (error) {
-      setMessage(error.response?.data?.error || 'Failed to stop trading');
-      setMessageType('error');
-    }
-  };
-
-  const handleDisconnect = async () => {
-    try {
-      await axios.post('/api/disconnect');
-      setIsConnected(false);
-      setIsTrading(false);
-      setBalance(0);
-      setTradeHistory([]);
-      setStats({
-        total_trades: 0,
-        winning_trades: 0,
-        losing_trades: 0,
-        total_profit_loss: 0,
-        winning_rate: 0
-      });
-      setMessage('Disconnected from Deriv API');
-      setMessageType('success');
-    } catch (error) {
-      setMessage(error.response?.data?.error || 'Failed to disconnect');
       setMessageType('error');
     }
   };
@@ -427,8 +500,6 @@ function App() {
                   disabled={isTrading}
                 />
               </div>
-
-              {/* Duration dropdown removed - now using fixed 1-tick trading */}
 
               {/* Take Profit Settings */}
               <div className="form-group">
@@ -781,44 +852,6 @@ function App() {
       </div>
     </div>
   );
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 }
 
 export default App;

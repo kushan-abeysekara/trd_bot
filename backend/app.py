@@ -1,6 +1,5 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from flask_socketio import SocketIO, emit
 import threading
 import time
 import os
@@ -12,23 +11,67 @@ app.config['SECRET_KEY'] = 'deriv-trading-bot-secret'
 
 # Configure CORS with environment-specific origins
 CORS(app, origins=CORS_ORIGINS)
-socketio = SocketIO(app, 
-                   cors_allowed_origins=CORS_ORIGINS, 
-                   async_mode='threading', 
-                   logger=True, 
-                   engineio_logger=True,
-                   ping_timeout=60,
-                   ping_interval=25)
 
 # Global bot instance
 bot_instance = None
-balance_update_thread = None
+update_thread = None
+
+# In-memory storage for updates
+latest_balance = 0
+latest_trades = []
+latest_stats = {}
+latest_indicators = {}
+latest_session_stats = {}
+latest_strategy_signal = None
+
+def start_update_thread():
+    """Start a thread to periodically update data from the bot"""
+    global update_thread, latest_balance, latest_trades, latest_stats, latest_indicators
+    
+    def update_loop():
+        global bot_instance, latest_balance, latest_trades, latest_stats, latest_indicators
+        while bot_instance and bot_instance.api.is_connected:
+            try:
+                # Update balance
+                bot_instance.api.refresh_balance()
+                latest_balance = bot_instance.get_balance()
+                
+                # Update stats
+                latest_stats = bot_instance.get_stats()
+                
+                # Update trade history
+                latest_trades = bot_instance.get_trade_history()
+                
+                # Update indicators
+                if hasattr(bot_instance, 'strategy_engine'):
+                    latest_indicators = bot_instance.get_strategy_indicators()
+                
+                # Update session stats
+                latest_session_stats.update({
+                    'session_profit_loss': bot_instance.session_profit_loss,
+                    'initial_balance': bot_instance.initial_balance,
+                    'current_balance': latest_balance,
+                    'take_profit_enabled': bot_instance.take_profit_enabled,
+                    'take_profit_amount': bot_instance.take_profit_amount,
+                    'stop_loss_enabled': bot_instance.stop_loss_enabled,
+                    'stop_loss_amount': bot_instance.stop_loss_amount
+                })
+                
+                time.sleep(2)  # Update every 2 seconds
+            except Exception as e:
+                print(f"Update thread error: {e}")
+                time.sleep(5)  # Pause longer on error
+    
+    if update_thread is None or not update_thread.is_alive():
+        update_thread = threading.Thread(target=update_loop)
+        update_thread.daemon = True
+        update_thread.start()
 
 
 @app.route('/api/connect', methods=['POST'])
 def connect_api():
     """Connect to Deriv API with provided token"""
-    global bot_instance
+    global bot_instance, latest_balance
     
     data = request.get_json()
     api_token = data.get('api_token')
@@ -42,62 +85,37 @@ def connect_api():
         
         # Set up callbacks
         def on_connection_status(success, error=None):
+            global latest_balance
             if success:
                 initial_balance = bot_instance.get_balance()
-                bot_instance.initial_balance = initial_balance  # Ensure initial balance is set
-                socketio.emit('connection_status', {
-                    'connected': True, 
-                    'balance': initial_balance,
-                    'initial_balance': initial_balance
-                })
-                start_balance_updates()
-            else:
-                socketio.emit('connection_status', {'connected': False, 'error': error})
-                
+                bot_instance.initial_balance = initial_balance
+                latest_balance = initial_balance
+                # Start the update thread
+                start_update_thread()
+            
         def on_trade_update(trade_info):
-            # Emit trade update first
-            socketio.emit('trade_update', trade_info)
-            
-            # Emit balance update if included in trade info
+            global latest_trades, latest_balance
+            # Add trade to history
+            if trade_info not in latest_trades:
+                latest_trades.insert(0, trade_info)
+            # Update balance if provided
             if 'balance_after' in trade_info:
-                socketio.emit('balance_update', {'balance': trade_info['balance_after']})
-            else:
-                # Fallback to getting current balance
-                current_balance = bot_instance.get_balance()
-                socketio.emit('balance_update', {'balance': current_balance})
-            
-            # Also emit session stats update
-            if 'session_pnl' in trade_info:
-                session_stats = {
-                    'session_profit_loss': trade_info['session_pnl'],
-                    'initial_balance': bot_instance.initial_balance,
-                    'current_balance': trade_info.get('balance_after', bot_instance.get_balance()),
-                    'take_profit_enabled': bot_instance.take_profit_enabled,
-                    'take_profit_amount': bot_instance.take_profit_amount,
-                    'stop_loss_enabled': bot_instance.stop_loss_enabled,
-                    'stop_loss_amount': bot_instance.stop_loss_amount
-                }
-                socketio.emit('session_stats_update', session_stats)
+                latest_balance = trade_info['balance_after']
             
         def on_stats_update(stats):
-            socketio.emit('stats_update', stats)
+            global latest_stats
+            latest_stats = stats
             
         def on_strategy_signal(signal_data):
-            socketio.emit('strategy_signal', signal_data)
+            global latest_strategy_signal
+            latest_strategy_signal = signal_data
             
         def on_balance_update(balance_data):
-            """Handle real-time balance updates"""
+            global latest_balance
             if isinstance(balance_data, dict):
-                # Add real_profit calculation if not already present
-                if 'balance' in balance_data and 'initial_balance' in balance_data and 'real_profit' not in balance_data:
-                    balance_data['real_profit'] = balance_data['balance'] - balance_data['initial_balance']
-                socketio.emit('balance_update', balance_data)
+                latest_balance = balance_data.get('balance', latest_balance)
             else:
-                socketio.emit('balance_update', {
-                    'balance': balance_data,
-                    'initial_balance': bot_instance.initial_balance if hasattr(bot_instance, 'initial_balance') else balance_data,
-                    'real_profit': balance_data - (bot_instance.initial_balance if hasattr(bot_instance, 'initial_balance') else balance_data)
-                })
+                latest_balance = balance_data
             
         bot_instance.set_callback('connection_status', on_connection_status)
         bot_instance.set_callback('trade_update', on_trade_update)
@@ -112,6 +130,21 @@ def connect_api():
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/connection-status', methods=['GET'])
+def get_connection_status():
+    """Check connection status"""
+    global bot_instance, latest_balance
+    
+    if not bot_instance:
+        return jsonify({'connected': False}), 200
+    
+    return jsonify({
+        'connected': bot_instance.api.is_connected,
+        'balance': latest_balance,
+        'initial_balance': getattr(bot_instance, 'initial_balance', latest_balance)
+    }), 200
 
 
 @app.route('/api/start-trading', methods=['POST'])
@@ -151,7 +184,7 @@ def stop_trading():
 @app.route('/api/balance', methods=['GET'])
 def get_balance():
     """Get current balance"""
-    global bot_instance
+    global bot_instance, latest_balance
     
     if not bot_instance:
         return jsonify({'error': 'Not connected to API'}), 400
@@ -159,8 +192,8 @@ def get_balance():
     try:
         # Refresh balance from server before returning
         bot_instance.api.refresh_balance()
-        balance = bot_instance.get_balance()
-        return jsonify({'balance': balance}), 200
+        latest_balance = bot_instance.get_balance()
+        return jsonify({'balance': latest_balance}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -168,7 +201,7 @@ def get_balance():
 @app.route('/api/refresh-balance', methods=['POST'])
 def refresh_balance():
     """Manually refresh balance from Deriv API"""
-    global bot_instance
+    global bot_instance, latest_balance
     
     if not bot_instance:
         return jsonify({'error': 'Not connected to API'}), 400
@@ -180,12 +213,9 @@ def refresh_balance():
         # Wait a moment for the response
         time.sleep(1)
         
-        balance = bot_instance.get_balance()
+        latest_balance = bot_instance.get_balance()
         
-        # Emit to all connected clients
-        socketio.emit('balance_update', {'balance': balance})
-        
-        return jsonify({'balance': balance, 'message': 'Balance refreshed'}), 200
+        return jsonify({'balance': latest_balance, 'message': 'Balance refreshed'}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -193,14 +223,14 @@ def refresh_balance():
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
     """Get trading statistics"""
-    global bot_instance
+    global bot_instance, latest_stats
     
     if not bot_instance:
         return jsonify({'error': 'Not connected to API'}), 400
         
     try:
-        stats = bot_instance.get_stats()
-        return jsonify(stats), 200
+        latest_stats = bot_instance.get_stats()
+        return jsonify(latest_stats), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -208,14 +238,14 @@ def get_stats():
 @app.route('/api/trade-history', methods=['GET'])
 def get_trade_history():
     """Get trade history"""
-    global bot_instance
+    global bot_instance, latest_trades
     
     if not bot_instance:
         return jsonify({'error': 'Not connected to API'}), 400
         
     try:
-        history = bot_instance.get_trade_history()
-        return jsonify({'trades': history}), 200
+        latest_trades = bot_instance.get_trade_history()
+        return jsonify({'trades': latest_trades}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -223,7 +253,7 @@ def get_trade_history():
 @app.route('/api/disconnect', methods=['POST'])
 def disconnect():
     """Disconnect from API"""
-    global bot_instance, balance_update_thread
+    global bot_instance, update_thread
     
     if bot_instance:
         bot_instance.disconnect()
@@ -295,14 +325,14 @@ def reset_strategy_stats():
 @app.route('/api/indicators', methods=['GET'])
 def get_indicators():
     """Get current technical indicators"""
-    global bot_instance
+    global bot_instance, latest_indicators
     
     if not bot_instance:
         return jsonify({'error': 'Not connected to API'}), 400
         
     try:
-        indicators = bot_instance.get_strategy_indicators()
-        return jsonify(indicators), 200
+        latest_indicators = bot_instance.get_strategy_indicators()
+        return jsonify(latest_indicators), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -414,13 +444,13 @@ def reset_cooldowns():
 @app.route('/api/session-stats', methods=['GET'])
 def get_session_stats():
     """Get session trading statistics"""
-    global bot_instance
+    global bot_instance, latest_session_stats
     
     if not bot_instance:
         return jsonify({'error': 'Not connected to API'}), 400
         
     try:
-        stats = {
+        latest_session_stats = {
             'session_profit_loss': bot_instance.session_profit_loss,
             'initial_balance': bot_instance.initial_balance,
             'current_balance': bot_instance.get_balance(),
@@ -430,105 +460,42 @@ def get_session_stats():
             'stop_loss_amount': bot_instance.stop_loss_amount,
             'is_running': bot_instance.is_running
         }
-        return jsonify(stats), 200
+        return jsonify(latest_session_stats), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
-def start_balance_updates():
-    """Start real-time balance and strategy updates"""
-    global balance_update_thread, bot_instance
+@app.route('/api/latest-signal', methods=['GET'])
+def get_latest_signal():
+    """Get latest strategy signal"""
+    global latest_strategy_signal
     
-    def update_balance():
-        while bot_instance and bot_instance.api.is_connected:
-            try:
-                # Request fresh balance from Deriv API
-                bot_instance.api.refresh_balance()
-                
-                # Also emit current balance
-                balance = bot_instance.get_balance()
-                socketio.emit('balance_update', {'balance': balance})
-                
-                # Get strategy status every cycle
-                if hasattr(bot_instance, 'strategy_engine'):
-                    strategy_status = bot_instance.strategy_engine.get_strategy_status()
-                    socketio.emit('strategy_status_update', strategy_status)
-                
-                time.sleep(3)  # Update every 3 seconds (more frequent)
-            except Exception as e:
-                print(f"Balance update error: {e}")
-                break
-                
-    if balance_update_thread is None or not balance_update_thread.is_alive():
-        balance_update_thread = threading.Thread(target=update_balance)
-        balance_update_thread.daemon = True
-        balance_update_thread.start()
+    if latest_strategy_signal:
+        return jsonify(latest_strategy_signal), 200
+    else:
+        return jsonify({'message': 'No signals generated yet'}), 200
 
 
-# Enhanced Socket.IO diagnostic endpoints
-@socketio.on('connect')
-def handle_connect():
-    """Handle socket connection"""
-    print(f'Client connected: {request.sid}')
-    # Send detailed connection info to help troubleshoot
-    client_info = {
-        'session_id': request.sid,
-        'transport': request.environ.get('socketio.transport', 'unknown'),
-        'connected': True,
-        'server_timestamp': time.time()
-    }
-    emit('message', {'data': 'Connected to trading bot server', 'connection_info': client_info})
-
-@socketio.on('disconnect')
-def handle_disconnect(reason):
-    """Handle socket disconnection"""
-    print(f'Client disconnected: {reason}')
-
-
-@socketio.on('request_strategy_update')
-def handle_strategy_update_request():
-    """Handle client request for strategy update"""
-    global bot_instance
-    if bot_instance and hasattr(bot_instance, 'strategy_engine'):
-        try:
-            # Send strategy status
-            strategy_status = bot_instance.strategy_engine.get_strategy_status()
-            emit('strategy_status_update', strategy_status)
-            
-            # Send performance summary
-            performance = bot_instance.strategy_engine.get_performance_summary()
-            emit('strategy_performance_update', performance)
-            
-            # Send current indicators
-            indicators = bot_instance.strategy_engine.get_current_indicators()
-            emit('indicators_update', indicators)
-            
-        except Exception as e:
-            emit('error', {'message': f'Strategy update error: {str(e)}'})
-
-
-# Add a diagnostic route
-@app.route('/api/socket-test', methods=['GET'])
-def socket_test():
-    """Test Socket.IO connectivity"""
-    socketio.emit('test_event', {
-        'message': 'Socket.IO test event',
-        'timestamp': time.time(),
-        'transport_options': socketio.server.eio.transport_options
-    })
+@app.route('/api/updates', methods=['GET'])
+def get_updates():
+    """Get all latest updates in one call (efficient polling)"""
+    global latest_balance, latest_trades, latest_stats, latest_indicators, latest_session_stats, latest_strategy_signal, bot_instance
+    
+    is_connected = bot_instance and bot_instance.api.is_connected if bot_instance else False
+    is_trading = bot_instance and bot_instance.is_running if bot_instance else False
+    
     return jsonify({
-        'message': 'Socket.IO test event sent',
-        'cors_origins': CORS_ORIGINS,
-        'socket_path': socketio.server.eio.path or 'socket.io',
-        'ping_interval': socketio.server.eio.ping_interval,
-        'ping_timeout': socketio.server.eio.ping_timeout
+        'connected': is_connected,
+        'trading': is_trading,
+        'balance': latest_balance,
+        'stats': latest_stats,
+        'recent_trades': latest_trades[:5] if latest_trades else [],
+        'indicators': latest_indicators,
+        'session_stats': latest_session_stats,
+        'latest_signal': latest_strategy_signal,
+        'timestamp': time.time()
     }), 200
 
 
-@app.route('/api/test-socket')
-def test_socket():
-    return jsonify({"status": "Backend is working"}), 200
-
-
 if __name__ == '__main__':
-    socketio.run(app, debug=FLASK_DEBUG, host=FLASK_HOST, port=FLASK_PORT, allow_unsafe_werkzeug=True)
+    app.run(debug=FLASK_DEBUG, host=FLASK_HOST, port=FLASK_PORT)

@@ -11,22 +11,15 @@ from pathlib import Path
 backend_dir = Path(__file__).parent
 sys.path.insert(0, str(backend_dir))
 
-from app import app, socketio
+from app import app
 from config import FLASK_HOST, FLASK_PORT
 
 if __name__ == '__main__':
     # Production mode with Gunicorn-compatible settings
-    # Increase ping interval and timeout for more reliable WebSocket connections
-    socketio.server.eio.ping_interval = 25
-    socketio.server.eio.ping_timeout = 60
-    
-    socketio.run(
-        app,
+    app.run(
         host=FLASK_HOST,
         port=FLASK_PORT,
         debug=False,
-        allow_unsafe_werkzeug=True,
-        use_reloader=False,
-        log_output=True,  # Enable logging
-        cors_allowed_origins='*'  # Temporarily allow all origins for testing
+        threaded=True,  # Use threading for better performance
+        use_reloader=False
     )
