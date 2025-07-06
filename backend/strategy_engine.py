@@ -345,7 +345,7 @@ class StrategyEngine:
             if len(conditions_met) >= 3:
                 return TradeSignal(
                     strategy_name=self.strategies[1],
-                    direction='CALL',
+                    direction='PUT',
                     confidence=0.75,
                     hold_time=6,
                     entry_reason="Mean reversion from lower band",
@@ -357,7 +357,7 @@ class StrategyEngine:
             if len(conditions_met) >= 3:
                 return TradeSignal(
                     strategy_name=self.strategies[1],
-                    direction='PUT',
+                    direction='CALL',
                     confidence=0.75,
                     hold_time=6,
                     entry_reason="Mean reversion from upper band",
@@ -400,7 +400,7 @@ class StrategyEngine:
                 conditions_met.append("3/4 green ticks align with MACD")
                 return TradeSignal(
                     strategy_name=self.strategies[2],
-                    direction='CALL',
+                    direction='PUT',
                     confidence=0.8,
                     hold_time=8,
                     entry_reason="Micro-trend momentum upward",
@@ -411,7 +411,7 @@ class StrategyEngine:
                 conditions_met.append("3/4 red ticks align with MACD")
                 return TradeSignal(
                     strategy_name=self.strategies[2],
-                    direction='PUT',
+                    direction='CALL',
                     confidence=0.8,
                     hold_time=8,
                     entry_reason="Micro-trend momentum downward",
@@ -455,7 +455,7 @@ class StrategyEngine:
                 if macd_flat and vol_range:
                     return TradeSignal(
                         strategy_name=self.strategies[3],
-                        direction='CALL',
+                        direction='PUT',
                         confidence=0.7,
                         hold_time=5,
                         entry_reason="RSI-tick divergence suggests reversal up",
@@ -468,7 +468,7 @@ class StrategyEngine:
                 if macd_flat and vol_range:
                     return TradeSignal(
                         strategy_name=self.strategies[3],
-                        direction='PUT',
+                        direction='CALL',
                         confidence=0.7,
                         hold_time=5,
                         entry_reason="RSI-tick divergence suggests reversal down",
@@ -508,7 +508,7 @@ class StrategyEngine:
             if high_vol and rsi_neutral and macd_flat:
                 return TradeSignal(
                     strategy_name=self.strategies[4],
-                    direction='PUT',
+                    direction='CALL',
                     confidence=0.75,
                     hold_time=7,
                     entry_reason="Fading volatility spike upward",
@@ -520,7 +520,7 @@ class StrategyEngine:
             if high_vol and rsi_neutral and macd_flat:
                 return TradeSignal(
                     strategy_name=self.strategies[4],
-                    direction='CALL',
+                    direction='PUT',
                     confidence=0.75,
                     hold_time=7,
                     entry_reason="Fading volatility spike downward",
@@ -646,7 +646,7 @@ class StrategyEngine:
             conditions_met.extend(["RSI overbought (>70)", "Price at upper BB", "Red tick"])
             return TradeSignal(
                 strategy_name=self.strategies[7],
-                direction='PUT',
+                direction='CALL',
                 confidence=0.8,
                 hold_time=6,
                 entry_reason="RSI overextension fade from top",
@@ -659,7 +659,7 @@ class StrategyEngine:
             conditions_met.extend(["RSI oversold (<30)", "Price at lower BB", "Green tick"])
             return TradeSignal(
                 strategy_name=self.strategies[7],
-                direction='CALL',
+                direction='PUT',
                 confidence=0.8,
                 hold_time=6,
                 entry_reason="RSI overextension fade from bottom",
@@ -696,7 +696,7 @@ class StrategyEngine:
                 conditions_met.append("Local high + red reversal tick")
                 return TradeSignal(
                     strategy_name=self.strategies[8],
-                    direction='PUT',
+                    direction='CALL',
                     confidence=0.7,
                     hold_time=5,
                     entry_reason="Pivot bounce from local high",
@@ -709,7 +709,7 @@ class StrategyEngine:
                 conditions_met.append("Local low + green reversal tick")
                 return TradeSignal(
                     strategy_name=self.strategies[8],
-                    direction='CALL',
+                    direction='PUT',
                     confidence=0.7,
                     hold_time=5,
                     entry_reason="Pivot bounce from local low",
@@ -744,7 +744,7 @@ class StrategyEngine:
                 ])
                 return TradeSignal(
                     strategy_name=self.strategies[9],
-                    direction='CALL',
+                    direction='PUT',
                     confidence=0.85,
                     hold_time=8,
                     entry_reason="MACD-Momentum sync bullish",
@@ -761,7 +761,7 @@ class StrategyEngine:
                 ])
                 return TradeSignal(
                     strategy_name=self.strategies[9],
-                    direction='PUT',
+                    direction='CALL',
                     confidence=0.85,
                     hold_time=8,
                     entry_reason="MACD-Momentum sync bearish",
@@ -803,7 +803,7 @@ class StrategyEngine:
                     conditions_met.extend(["Green tick", "Positive momentum"])
                     return TradeSignal(
                         strategy_name=self.strategies[10],
-                        direction='CALL',
+                        direction='PUT',
                         confidence=0.72,
                         hold_time=4,
                         entry_reason="Fast tick speed with bullish momentum",
@@ -814,7 +814,7 @@ class StrategyEngine:
                     conditions_met.extend(["Red tick", "Negative momentum"])
                     return TradeSignal(
                         strategy_name=self.strategies[10],
-                        direction='PUT',
+                        direction='CALL',
                         confidence=0.72,
                         hold_time=4,
                         entry_reason="Fast tick speed with bearish momentum",
@@ -861,7 +861,7 @@ class StrategyEngine:
                 conditions_met.append("Upward breakout from compression")
                 return TradeSignal(
                     strategy_name=self.strategies[11],
-                    direction='CALL',
+                    direction='PUT',
                     confidence=0.8,
                     hold_time=7,
                     entry_reason="Volatility collapse breakout up",
@@ -872,7 +872,7 @@ class StrategyEngine:
                 conditions_met.append("Downward breakout from compression")
                 return TradeSignal(
                     strategy_name=self.strategies[11],
-                    direction='PUT',
+                    direction='CALL',
                     confidence=0.8,
                     hold_time=7,
                     entry_reason="Volatility collapse breakout down",
@@ -913,7 +913,7 @@ class StrategyEngine:
                 ])
                 return TradeSignal(
                     strategy_name=self.strategies[12],
-                    direction='CALL',
+                    direction='PUT',
                     confidence=0.9,
                     hold_time=8,
                     entry_reason="Three-step confirmation bullish",
@@ -928,7 +928,7 @@ class StrategyEngine:
                 ])
                 return TradeSignal(
                     strategy_name=self.strategies[12],
-                    direction='PUT',
+                    direction='CALL',
                     confidence=0.9,
                     hold_time=8,
                     entry_reason="Three-step confirmation bearish",
