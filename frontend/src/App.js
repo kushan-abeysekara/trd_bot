@@ -88,6 +88,14 @@ function App() {
     }
   };
 
+  // Add a safe toFixed method to handle undefined values
+  const safeToFixed = (value, digits = 1) => {
+    if (value === undefined || value === null) {
+      return '0.0';
+    }
+    return value.toFixed(digits);
+  };
+
   // Start polling for updates
   const startPolling = () => {
     if (pollingRef.current) return;
@@ -211,7 +219,7 @@ function App() {
 
   // Show signal notification
   const showSignalNotification = (signal) => {
-    setMessage(`🎯 ${signal.strategy_name} - ${signal.direction} (${(signal.confidence * 100).toFixed(0)}% confidence)`);
+    setMessage(`🎯 ${signal.strategy_name} - ${signal.direction} (${signal.confidence ? (signal.confidence * 100).toFixed(0) : '0'}% confidence)`);
     setMessageType('info');
     
     // Clear message after 5 seconds
@@ -422,6 +430,9 @@ function App() {
   };
 
   const formatCurrency = (amount) => {
+    if (amount === undefined || amount === null) {
+      amount = 0;
+    }
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD'
@@ -643,22 +654,22 @@ function App() {
           
           <div className="stats-grid">
             <div className="stat-item">
-              <div className="stat-value">{stats.total_trades}</div>
+              <div className="stat-value">{stats.total_trades || 0}</div>
               <div className="stat-label">Total Trades</div>
             </div>
             
             <div className="stat-item">
-              <div className="stat-value">{stats.winning_rate.toFixed(1)}%</div>
+              <div className="stat-value">{stats.winning_rate !== undefined ? safeToFixed(stats.winning_rate) : '0.0'}%</div>
               <div className="stat-label">Win Rate</div>
             </div>
             
             <div className="stat-item">
-              <div className="stat-value">{stats.winning_trades}</div>
+              <div className="stat-value">{stats.winning_trades || 0}</div>
               <div className="stat-label">Wins</div>
             </div>
             
             <div className="stat-item">
-              <div className="stat-value">{stats.losing_trades}</div>
+              <div className="stat-value">{stats.losing_trades || 0}</div>
               <div className="stat-label">Losses</div>
             </div>
           </div>
@@ -682,7 +693,7 @@ function App() {
           </div>
 
           <div className="balance-display" style={{ fontSize: '1.5rem', marginTop: '20px' }}>
-            Total P&L: <span className={stats.total_profit_loss >= 0 ? 'profit' : 'loss'}>
+            Total P&L: <span className={(stats.total_profit_loss || 0) >= 0 ? 'profit' : 'loss'}>
               {formatCurrency(stats.total_profit_loss)}
             </span>
           </div>
@@ -718,14 +729,14 @@ function App() {
                     </span>
                   </div>
                   <div className="signal-details">
-                    <div>Confidence: {(lastSignal.confidence * 100).toFixed(0)}%</div>
+                    <div>Confidence: {lastSignal.confidence !== undefined ? (lastSignal.confidence * 100).toFixed(0) : '0'}%</div>
                     <div>Hold Time: {lastSignal.hold_time}s</div>
                   </div>
                   <div className="signal-reason">{lastSignal.entry_reason}</div>
                   <div className="signal-conditions">
                     <strong>Conditions Met:</strong>
                     <ul>
-                      {lastSignal.conditions_met.map((condition, index) => (
+                      {(lastSignal.conditions_met || []).map((condition, index) => (
                         <li key={index}>{condition}</li>
                       ))}
                     </ul>
@@ -742,50 +753,50 @@ function App() {
               <div className="indicators-grid">
                 <div className="indicator-item">
                   <div className="indicator-label">RSI</div>
-                  <div className={`indicator-value ${indicators.rsi > 70 ? 'overbought' : indicators.rsi < 30 ? 'oversold' : 'neutral'}`}>
-                    {indicators.rsi?.toFixed(1)}
+                  <div className={`indicator-value ${(indicators.rsi || 0) > 70 ? 'overbought' : (indicators.rsi || 0) < 30 ? 'oversold' : 'neutral'}`}>
+                    {indicators.rsi !== undefined ? safeToFixed(indicators.rsi) : '0.0'}
                   </div>
                 </div>
                 
                 <div className="indicator-item">
                   <div className="indicator-label">MACD</div>
-                  <div className={`indicator-value ${indicators.macd > 0 ? 'bullish' : 'bearish'}`}>
-                    {indicators.macd?.toFixed(4)}
+                  <div className={`indicator-value ${(indicators.macd || 0) > 0 ? 'bullish' : 'bearish'}`}>
+                    {indicators.macd !== undefined ? safeToFixed(indicators.macd, 4) : '0.0000'}
                   </div>
                 </div>
                 
                 <div className="indicator-item">
                   <div className="indicator-label">Momentum</div>
-                  <div className={`indicator-value ${indicators.momentum > 0 ? 'bullish' : 'bearish'}`}>
-                    {indicators.momentum?.toFixed(2)}%
+                  <div className={`indicator-value ${(indicators.momentum || 0) > 0 ? 'bullish' : 'bearish'}`}>
+                    {indicators.momentum !== undefined ? safeToFixed(indicators.momentum, 2) : '0.00'}%
                   </div>
                 </div>
                 
                 <div className="indicator-item">
                   <div className="indicator-label">Volatility</div>
-                  <div className={`indicator-value ${indicators.volatility > 2 ? 'high' : indicators.volatility < 0.5 ? 'low' : 'normal'}`}>
-                    {indicators.volatility?.toFixed(2)}%
+                  <div className={`indicator-value ${(indicators.volatility || 0) > 2 ? 'high' : (indicators.volatility || 0) < 0.5 ? 'low' : 'normal'}`}>
+                    {indicators.volatility !== undefined ? safeToFixed(indicators.volatility, 2) : '0.00'}%
                   </div>
                 </div>
                 
                 <div className="indicator-item">
                   <div className="indicator-label">BB Upper</div>
-                  <div className="indicator-value">{indicators.bb_upper?.toFixed(5)}</div>
+                  <div className="indicator-value">{indicators.bb_upper !== undefined ? safeToFixed(indicators.bb_upper, 5) : '0.00000'}</div>
                 </div>
                 
                 <div className="indicator-item">
                   <div className="indicator-label">BB Lower</div>
-                  <div className="indicator-value">{indicators.bb_lower?.toFixed(5)}</div>
+                  <div className="indicator-value">{indicators.bb_lower !== undefined ? safeToFixed(indicators.bb_lower, 5) : '0.00000'}</div>
                 </div>
                 
                 <div className="indicator-item">
                   <div className="indicator-label">EMA5</div>
-                  <div className="indicator-value">{indicators.ema5?.toFixed(5)}</div>
+                  <div className="indicator-value">{indicators.ema5 !== undefined ? safeToFixed(indicators.ema5, 5) : '0.00000'}</div>
                 </div>
                 
                 <div className="indicator-item">
                   <div className="indicator-label">Tick Count</div>
-                  <div className="indicator-value">{indicators.tick_count}</div>
+                  <div className="indicator-value">{indicators.tick_count || 0}</div>
                 </div>
               </div>
             ) : (
@@ -818,7 +829,7 @@ function App() {
                   {trade.strategy_name && (
                     <div className="strategy-info">
                       <div className="strategy-badge">🧠 {trade.strategy_name}</div>
-                      {trade.strategy_confidence && (
+                      {trade.strategy_confidence !== undefined && (
                         <div className="confidence-badge">
                           {(trade.strategy_confidence * 100).toFixed(0)}% confidence
                         </div>
@@ -839,7 +850,7 @@ function App() {
                       {trade.profit_loss >= 0 ? '+' : ''}{formatCurrency(trade.profit_loss)}
                     </div>
                   )}
-                  {trade.actual_win_probability && (
+                  {trade.actual_win_probability !== undefined && (
                     <div className="win-probability">
                       {(trade.actual_win_probability * 100).toFixed(0)}% win chance
                     </div>
