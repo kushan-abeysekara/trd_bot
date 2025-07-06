@@ -156,10 +156,26 @@ def connect_api():
             global latest_balance
             if success:
                 # Store initial balance right away when connected
-                initial_balance = bot_instance.get_balance()
+                # Add retries for getting initial balance
+                retry_count = 0
+                max_retries = 5
+                initial_balance = 0
+                
+                while retry_count < max_retries and initial_balance <= 0:
+                    initial_balance = bot_instance.get_balance()
+                    if initial_balance > 0:
+                        break
+                    time.sleep(1)  # Wait 1 second before retrying
+                    retry_count += 1
+                    print(f"Retry {retry_count}/{max_retries} for initial balance: {initial_balance}")
+                
                 bot_instance.initial_balance = initial_balance
                 latest_balance = initial_balance
                 print(f"Initial balance set to: {initial_balance}")  # Debug log
+                
+                # Force a balance refresh through API
+                bot_instance.api.refresh_balance()
+                
                 # Start the update thread
                 start_update_thread()
             
@@ -209,6 +225,19 @@ def get_connection_status():
     
     if not bot_instance:
         return jsonify({'connected': False}), 200
+    
+    # Try to get a fresh balance value
+    try:
+        # Force refresh balance if it's 0
+        if latest_balance <= 0:
+            bot_instance.api.refresh_balance()
+            time.sleep(0.5)  # Short wait for balance update
+            fresh_balance = bot_instance.get_balance()
+            if fresh_balance > 0:
+                latest_balance = fresh_balance
+                print(f"Updated zero balance to: {latest_balance}")
+    except Exception as e:
+        print(f"Error refreshing balance: {e}")
     
     initial_bal = getattr(bot_instance, 'initial_balance', 0)
     return jsonify({
@@ -284,7 +313,20 @@ def refresh_balance():
         # Wait a moment for the response
         time.sleep(1)
         
-        latest_balance = bot_instance.get_balance()
+        # Try up to 3 times to get a valid balance
+        retry_count = 0
+        max_retries = 3
+        fresh_balance = 0
+        
+        while retry_count < max_retries and fresh_balance <= 0:
+            fresh_balance = bot_instance.get_balance()
+            if fresh_balance > 0:
+                break
+            time.sleep(0.5)
+            retry_count += 1
+        
+        if fresh_balance > 0:
+            latest_balance = fresh_balance
         
         return jsonify({'balance': latest_balance, 'message': 'Balance refreshed'}), 200
     except Exception as e:
