@@ -70,8 +70,10 @@ function App() {
       if (response.data.connected) {
         setIsConnected(true);
         setBalance(response.data.balance || 0);
-        if (response.data.initial_balance) {
+        if (response.data.initial_balance && response.data.initial_balance > 0) {
           setInitialBalance(response.data.initial_balance);
+          // Calculate real profit based on initial balance
+          setRealProfit((response.data.balance || 0) - response.data.initial_balance);
         }
         setMessage('Successfully connected to Deriv API');
         setMessageType('success');
@@ -134,6 +136,11 @@ function App() {
             data.latest_signal.timestamp > lastSignal.timestamp)) {
           setLastSignal(data.latest_signal);
           showSignalNotification(data.latest_signal);
+        }
+        
+        // Update initial balance if provided and not set yet
+        if (data.initial_balance && data.initial_balance > 0 && initialBalance === 0) {
+          setInitialBalance(data.initial_balance);
         }
         
         // Calculate real profit
@@ -295,8 +302,10 @@ function App() {
             clearInterval(checkStatus);
             setIsConnected(true);
             setBalance(response.data.balance || 0);
-            if (response.data.initial_balance) {
+            if (response.data.initial_balance && response.data.initial_balance > 0) {
               setInitialBalance(response.data.initial_balance);
+              // Also calculate real profit right away
+              setRealProfit((response.data.balance || 0) - response.data.initial_balance);
             }
             setMessage('Successfully connected to Deriv API');
             setMessageType('success');
@@ -674,7 +683,7 @@ function App() {
             </div>
           </div>
 
-          {/* Add Starting Balance and Real Profit information */}
+          {/* Updated Starting Balance and Real Profit information */}
           <div className="balance-section">
             <div className="balance-row">
               <span>Starting Balance:</span>
@@ -693,8 +702,8 @@ function App() {
           </div>
 
           <div className="balance-display" style={{ fontSize: '1.5rem', marginTop: '20px' }}>
-            Total P&L: <span className={(stats.total_profit_loss || 0) >= 0 ? 'profit' : 'loss'}>
-              {formatCurrency(stats.total_profit_loss)}
+            Total P&L: <span className={realProfit >= 0 ? 'profit' : 'loss'}>
+              {formatCurrency(realProfit)}
             </span>
           </div>
         </div>

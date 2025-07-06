@@ -87,9 +87,11 @@ def connect_api():
         def on_connection_status(success, error=None):
             global latest_balance
             if success:
+                # Store initial balance right away when connected
                 initial_balance = bot_instance.get_balance()
                 bot_instance.initial_balance = initial_balance
                 latest_balance = initial_balance
+                print(f"Initial balance set to: {initial_balance}")  # Debug log
                 # Start the update thread
                 start_update_thread()
             
@@ -140,10 +142,11 @@ def get_connection_status():
     if not bot_instance:
         return jsonify({'connected': False}), 200
     
+    initial_bal = getattr(bot_instance, 'initial_balance', 0)
     return jsonify({
         'connected': bot_instance.api.is_connected,
         'balance': latest_balance,
-        'initial_balance': getattr(bot_instance, 'initial_balance', latest_balance)
+        'initial_balance': initial_bal
     }), 200
 
 
@@ -483,11 +486,13 @@ def get_updates():
     
     is_connected = bot_instance and bot_instance.api.is_connected if bot_instance else False
     is_trading = bot_instance and bot_instance.is_running if bot_instance else False
+    initial_balance = getattr(bot_instance, 'initial_balance', 0) if bot_instance else 0
     
     return jsonify({
         'connected': is_connected,
         'trading': is_trading,
         'balance': latest_balance,
+        'initial_balance': initial_balance,
         'stats': latest_stats,
         'recent_trades': latest_trades[:5] if latest_trades else [],
         'indicators': latest_indicators,
