@@ -174,6 +174,8 @@ class StrategyEngine:
         self.max_consecutive_losses = 2  # Stop after 2 consecutive losses
         self.session_trades = 0
         self.max_session_trades = 20  # Cap at 20 trades per session
+        self.consecutive_losses_warning_shown = False
+        self.session_trades_warning_shown = False
         
         # Tick speed analysis
         self.tick_intervals = deque(maxlen=20)
@@ -188,6 +190,8 @@ class StrategyEngine:
         self.signal_callback = signal_callback
         self.is_running = True
         self.session_trades = 0  # Reset session trade counter
+        self.consecutive_losses_warning_shown = False  # Reset warning flags
+        self.session_trades_warning_shown = False      # Reset warning flags
         
         scan_thread = threading.Thread(target=self._scan_loop)
         scan_thread.daemon = True
@@ -430,12 +434,20 @@ class StrategyEngine:
     def _scan_strategies(self):
         """Scan all strategies for trade signals with risk management"""
         # Check risk management rules first
-        if self.consecutive_losses >= self.max_consecutive_losses:
-            print(f"🛑 Risk management: {self.consecutive_losses} consecutive losses reached. Trading paused.")
+        if self.consecutive_losses >= self.max_consecutive_losses and self.max_consecutive_losses > 0:
+            # Only show warning once
+            if not hasattr(self, 'consecutive_losses_warning_shown') or not self.consecutive_losses_warning_shown:
+                print(f"🛑 Risk management: {self.consecutive_losses} consecutive losses reached. Trading paused.")
+                self.consecutive_losses_warning_shown = True
+            print(f"DEBUG: Strategy engine stopping due to consecutive losses: {self.consecutive_losses}/{self.max_consecutive_losses}")
             return
             
-        if self.session_trades >= self.max_session_trades:
-            print(f"🛑 Risk management: Maximum {self.max_session_trades} trades for this session reached.")
+        if self.session_trades >= self.max_session_trades and self.max_session_trades > 0:
+            # Only show warning once
+            if not hasattr(self, 'session_trades_warning_shown') or not self.session_trades_warning_shown:
+                print(f"🛑 Risk management: Maximum {self.max_session_trades} trades for this session reached.")
+                self.session_trades_warning_shown = True
+            print(f"DEBUG: Strategy engine stopping due to session trades limit: {self.session_trades}/{self.max_session_trades}")
             return
             
         signals = []
@@ -516,12 +528,14 @@ class StrategyEngine:
                     best_signal.take_profit = current_price - (risk * 2)  # 2:1 ratio
                 
                 self.signal_callback(best_signal)
-                self.session_trades += 1  # Increment session trade counter
+                # Don't increment session trades here - this is now handled by trading_bot after trade completion
+                # The trading_bot manages the session trade counter
                 
                 # Log all active strategies for monitoring
                 active_strategies = [f"{s.strategy_name} ({s.confidence:.2f})" 
                                    for s in high_confidence_signals[:3]]
                 print(f"[STRATEGY ENGINE] 🎯 Sending signal: {best_signal.strategy_name} ({best_signal.confidence:.2f})")
+                print(f"[STRATEGY ENGINE] Session trades: {self.session_trades}/{self.max_session_trades}")
                 if len(active_strategies) > 1:
                     print(f"[STRATEGY ENGINE] Other active: {', '.join(active_strategies[1:])}")
             
@@ -1678,6 +1692,24 @@ class StrategyEngine:
         # Pass to optimizer
         self.optimizer.record_trade_result(strategy_name, params, result, profit)
     
+    def reset_warnings(self):
+        """Reset all warning flags"""
+        self.consecutive_losses_warning_shown = False
+        self.session_trades_warning_shown = False
+        print("Strategy engine warning flags reset")
+    
+    def reset_session_trades(self):
+        """Reset session trades counter and related warnings"""
+        previous = self.session_trades
+        self.session_trades = 0
+        self.session_trades_warning_shown = False
+        print(f"Strategy engine session trades reset from {previous} to 0")
+        
+    def sync_session_trades(self, count):
+        """Sync session trades count with trading bot"""
+        self.session_trades = count
+        print(f"Strategy engine session trades synced to {count}")
+    
     # ... other existing methods ...
         consistent_direction = (all(color == 'green' for color in last_3_ticks) or 
                                all(color == 'red' for color in last_3_ticks))
@@ -1806,22 +1838,28 @@ class StrategyEngine:
         
     def _strategy_32(self) -> Optional[TradeSignal]:
         """Opposite Color Flush - Trade when majority ticks flip direction"""
+       
+
         if len(self.tick_history) < 5:
             return None
             
         conditions_met = []
         
-        # Check for pattern: 3 red ticks → 2 green ticks
         last_5_ticks = [tick.color for tick in list(self.tick_history)[-5:]]
-        first_3 = last_5_ticks[:3]
-        last_2 = last_5_ticks[3:]
+        
+        # Check if first 3 are red and last 2 are green
+        first_3_red = all(color == 'red' for color in last_5_ticks[:3])
+        last_2_green = all(color == 'green' for color in last_5_ticks[3:])
+        
+        # Check if first 3 are green and last 2 are red
+        first_3_green = all(color == 'green' for color in last_5_ticks[:3])
+        last_2_red = all(color == 'red' for color in last_5_ticks[3:])
         
         # RSI also rises
         rsi_rising = self.indicators.rsi > self.indicators.rsi_previous
         rsi_falling = self.indicators.rsi < self.indicators.rsi_previous
         
-        if (all(color == 'red' for color in first_3) and 
-            all(color == 'green' for color in last_2) and rsi_rising):
+        if (first_3_red and last_2_green and rsi_rising):
             conditions_met.extend(["3 red → 2 green flip", "RSI rising"])
             return TradeSignal(
                 strategy_name=self.strategies[32],
@@ -1832,8 +1870,7 @@ class StrategyEngine:
                 conditions_met=conditions_met
             )
             
-        elif (all(color == 'green' for color in first_3) and 
-              all(color == 'red' for color in last_2) and rsi_falling):
+        elif (first_3_green and last_2_red and rsi_falling):
             conditions_met.extend(["3 green → 2 red flip", "RSI falling"])
             return TradeSignal(
                 strategy_name=self.strategies[32],

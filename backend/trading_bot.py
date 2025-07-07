@@ -62,7 +62,7 @@ class TradingBot:
         
         # Risk management settings
         self.risk_management = {
-            'max_trades_per_session': 20,  # Default max trades per session
+            'max_trades_per_session': 100,  # Increased from 20 to 100 as default max trades per session
             'max_consecutive_losses': 5,   # Default max consecutive losses
             'max_daily_loss': 0.0,         # Default max daily loss (0 means no limit)
             'cooling_period': 0,           # Default cooling period in minutes after hitting limits
@@ -71,7 +71,9 @@ class TradingBot:
             'daily_loss': 0.0,             # Track daily loss
             'risk_limits_hit': False,      # Flag to indicate if risk limits were hit
             'trading_suspended_until': 0,  # Timestamp until trading is suspended
-            'limits_hit_reason': ''        # Reason for hitting limits
+            'limits_hit_reason': '',       # Reason for hitting limits
+            'limits_enabled': True,        # New flag to enable/disable risk limits completely
+            'warning_shown': False         # Track if warning was already shown
         }
         
     def set_callback(self, event: str, callback):
@@ -125,6 +127,10 @@ class TradingBot:
         # Start strategy scanning
         self.strategy_scanning = True
         self.strategy_engine.start_scanning(self._handle_strategy_signal)
+        
+        # Make sure strategy engine max trades match our settings
+        if hasattr(self.strategy_engine, 'max_session_trades'):
+            self.strategy_engine.max_session_trades = self.risk_management['max_trades_per_session']
         
         # Start price feed simulation (in real implementation, this would be live data)
         price_feed_thread = threading.Thread(target=self._simulate_price_feed)
@@ -529,10 +535,21 @@ class TradingBot:
                 profit_loss
             )
             
+            # Increment session trade counters after each completed trade
+            self.risk_management['session_trade_count'] += 1
+            
+            # Sync the session trades count with the strategy engine
+            if hasattr(self.strategy_engine, 'sync_session_trades'):
+                self.strategy_engine.sync_session_trades(self.risk_management['session_trade_count'])
+            
+            if hasattr(self.strategy_engine, 'session_trades'):
+                self.strategy_engine.session_trades += 1
+                print(f"[SYNC] Incremented session_trades in strategy engine: {self.strategy_engine.session_trades}")
+
             # Check if take profit or stop loss limits are hit
             if self.check_profit_loss_limits():
                 return  # Trading was stopped, exit the method
-                
+            
             if self.callbacks['stats_update']:
                 self.callbacks['stats_update'](self.stats)
                 
@@ -639,15 +656,27 @@ class TradingBot:
         """Check if any risk management limits have been hit"""
         current_time = time.time()
         
+        # Skip checks if limits are disabled
+        if not self.risk_management['limits_enabled']:
+            return True
+            
         # Check if trading is suspended due to cooling period
         if self.risk_management['trading_suspended_until'] > current_time:
             remaining_time = int(self.risk_management['trading_suspended_until'] - current_time)
             print(f"🧊 Trading suspended for {remaining_time} more seconds due to {self.risk_management['limits_hit_reason']}")
             return False
             
-        # Check max trades per session
-        if self.risk_management['session_trade_count'] >= self.risk_management['max_trades_per_session']:
-            print(f"🛑 Risk management: Maximum {self.risk_management['max_trades_per_session']} trades for this session reached.")
+        # Check max trades per session - only if limit is enabled (> 0)
+        # NOTE: Don't increment counter here, it should be incremented AFTER successful trade completion
+        if (self.risk_management['max_trades_per_session'] > 0 and 
+            self.risk_management['session_trade_count'] >= self.risk_management['max_trades_per_session']):
+            
+            # Don't show the warning repeatedly
+            if not self.risk_management['warning_shown']:
+                print(f"🛑 Risk management: Maximum {self.risk_management['max_trades_per_session']} trades for this session reached.")
+                print(f"To continue trading, either reset the session counter or disable the session limit.")
+                self.risk_management['warning_shown'] = True
+                
             self.risk_management['risk_limits_hit'] = True
             self.risk_management['limits_hit_reason'] = 'maximum trades per session'
             
@@ -718,16 +747,29 @@ class TradingBot:
             
             return False
         
-        # Increment session trade count before proceeding
-        self.risk_management['session_trade_count'] += 1
+        # Don't increment counter here - it should be incremented after successful trade completion
         return True
     
     def set_risk_limits(self, max_trades: int = None, max_losses: int = None, 
-                       max_daily_loss: float = None, cooling_period: int = None):
+                       max_daily_loss: float = None, cooling_period: int = None, enabled: bool = None):
         """Set risk management limits"""
+        # New parameter to enable/disable all risk limits
+        if enabled is not None:
+            self.risk_management['limits_enabled'] = enabled
+            print(f"Risk management limits {'enabled' if enabled else 'disabled'}")
+            
         if max_trades is not None:
-            self.risk_management['max_trades_per_session'] = max(1, int(max_trades))
-            print(f"Set maximum trades per session to {self.risk_management['max_trades_per_session']}")
+            # Allow disabling session trade limit by setting to 0 or negative
+            if max_trades <= 0:
+                self.risk_management['max_trades_per_session'] = 0
+                print(f"Session trade limit disabled (set to {self.risk_management['max_trades_per_session']})")
+            else:
+                self.risk_management['max_trades_per_session'] = int(max_trades)
+                print(f"Set maximum trades per session to {self.risk_management['max_trades_per_session']}")
+                
+            # Sync with strategy engine
+            if hasattr(self.strategy_engine, 'max_session_trades'):
+                self.strategy_engine.max_session_trades = self.risk_management['max_trades_per_session']
             
         if max_losses is not None:
             self.risk_management['max_consecutive_losses'] = max(0, int(max_losses))
@@ -740,7 +782,7 @@ class TradingBot:
         if cooling_period is not None:
             self.risk_management['cooling_period'] = max(0, int(cooling_period))
             print(f"Set cooling period to {self.risk_management['cooling_period']} minutes")
-    
+            
     def reset_risk_management(self, full_reset=False):
         """Reset risk management tracking"""
         print(f"Resetting risk management tracking{' (full reset)' if full_reset else ''}")
@@ -751,10 +793,79 @@ class TradingBot:
         self.risk_management['risk_limits_hit'] = False
         self.risk_management['trading_suspended_until'] = 0
         self.risk_management['limits_hit_reason'] = ''
+        self.risk_management['warning_shown'] = False  # Reset warning flag
+        
+        # Also reset warning flags in strategy engine
+        if hasattr(self.strategy_engine, 'reset_warnings'):
+            self.strategy_engine.reset_warnings()
         
         # Only reset daily loss on full reset (typically done once per day)
         if full_reset:
             self.risk_management['daily_loss'] = 0.0
+    
+    def reset_session_trade_counter(self):
+        """Reset only the session trade counter"""
+        previous_count = self.risk_management['session_trade_count']
+        self.risk_management['session_trade_count'] = 0
+        self.risk_management['risk_limits_hit'] = False
+        self.risk_management['trading_suspended_until'] = 0
+        self.risk_management['warning_shown'] = False  # Reset warning flag
+    
+        if self.risk_management['limits_hit_reason'] == 'maximum trades per session':
+            self.risk_management['limits_hit_reason'] = ''
+            
+        # Also reset warning flags and session trades in strategy engine
+        if hasattr(self.strategy_engine, 'reset_warnings'):
+            self.strategy_engine.reset_warnings()
+        if hasattr(self.strategy_engine, 'reset_session_trades'):
+            self.strategy_engine.reset_session_trades()
+    
+        print(f"🔄 Reset session trade counter from {previous_count} to 0")
+        
+        # Notify frontend about reset
+        if self.callbacks['trade_update']:
+            try:
+                self.callbacks['trade_update']({
+                    'type': 'risk_reset',
+                    'message': f"Session trade counter reset from {previous_count} to 0",
+                    'timestamp': datetime.now().isoformat()
+                })
+            except Exception as e:
+                print(f"⚠️  Error sending risk reset notification: {e}")
+    
+        return True
+    
+    def disable_session_limit(self):
+        """Disable session trade limit"""
+        previous_limit = self.risk_management['max_trades_per_session']
+        self.risk_management['max_trades_per_session'] = 0
+        self.risk_management['risk_limits_hit'] = False
+        self.risk_management['warning_shown'] = False
+        
+        if self.risk_management['limits_hit_reason'] == 'maximum trades per session':
+            self.risk_management['limits_hit_reason'] = ''
+            self.risk_management['trading_suspended_until'] = 0
+        
+        # Also update the strategy engine
+        if hasattr(self.strategy_engine, 'max_session_trades'):
+            self.strategy_engine.max_session_trades = 0
+        if hasattr(self.strategy_engine, 'reset_warnings'):
+            self.strategy_engine.reset_warnings()
+        
+        print(f"🔓 Session trade limit disabled (was {previous_limit})")
+        
+        # Notify frontend about the change
+        if self.callbacks['trade_update']:
+            try:
+                self.callbacks['trade_update']({
+                    'type': 'risk_update',
+                    'message': f"Session trade limit disabled",
+                    'timestamp': datetime.now().isoformat()
+                })
+            except Exception as e:
+                print(f"⚠️  Error sending risk update notification: {e}")
+        
+        return True
     
     def get_bot_status(self):
         """Get current bot status for debugging"""

@@ -726,6 +726,86 @@ def get_risk_management():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/risk-management/reset-session-counter', methods=['POST'])
+def reset_session_trade_counter():
+    """Reset the session trade counter to allow more trades"""
+    global bot_instance
+    
+    if not bot_instance:
+        return jsonify({'error': 'Not connected to API'}), 400
+        
+    try:
+        if bot_instance.reset_session_trade_counter():
+            return jsonify({
+                'success': True,
+                'message': 'Session trade counter reset successfully',
+                'current_count': 0
+            }), 200
+        else:
+            return jsonify({'error': 'Failed to reset session trade counter'}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/risk-management/disable-session-limit', methods=['POST'])
+def disable_session_trade_limit():
+    """Disable the session trade limit completely"""
+    global bot_instance
+    
+    if not bot_instance:
+        return jsonify({'error': 'Not connected to API'}), 400
+        
+    try:
+        if bot_instance.disable_session_limit():
+            return jsonify({
+                'success': True,
+                'message': 'Session trade limit disabled successfully'
+            }), 200
+        else:
+            return jsonify({'error': 'Failed to disable session trade limit'}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/risk-management/set-limits', methods=['POST'])
+def set_risk_limits():
+    """Set risk management limits"""
+    global bot_instance
+    
+    if not bot_instance:
+        return jsonify({'error': 'Not connected to API'}), 400
+    
+    data = request.get_json()
+    max_trades = data.get('max_trades')
+    max_losses = data.get('max_losses')
+    max_daily_loss = data.get('max_daily_loss')
+    cooling_period = data.get('cooling_period')
+    enabled = data.get('enabled')
+    
+    try:
+        bot_instance.set_risk_limits(
+            max_trades=max_trades,
+            max_losses=max_losses,
+            max_daily_loss=max_daily_loss,
+            cooling_period=cooling_period,
+            enabled=enabled
+        )
+        
+        return jsonify({
+            'success': True,
+            'message': 'Risk limits updated successfully',
+            'current_settings': {
+                'max_trades': bot_instance.risk_management['max_trades_per_session'],
+                'max_losses': bot_instance.risk_management['max_consecutive_losses'],
+                'max_daily_loss': bot_instance.risk_management['max_daily_loss'],
+                'cooling_period': bot_instance.risk_management['cooling_period'],
+                'enabled': bot_instance.risk_management['limits_enabled']
+            }
+        }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/risk-management/reset', methods=['POST'])
 def reset_risk_management():
     """Reset risk management counters"""
@@ -734,18 +814,18 @@ def reset_risk_management():
     if not bot_instance:
         return jsonify({'error': 'Not connected to API'}), 400
         
+    data = request.get_json() or {}
+    full_reset = data.get('full_reset', False)
+    
     try:
-        if hasattr(bot_instance, 'strategy_engine'):
-            bot_instance.strategy_engine.consecutive_losses = 0
-            bot_instance.strategy_engine.session_trades = 0
-            
-            return jsonify({
-                'message': 'Risk management counters reset',
-                'consecutive_losses': 0,
-                'session_trades': 0
-            }), 200
-        else:
-            return jsonify({'error': 'Strategy engine not initialized'}), 400
+        # Use the bot's native risk management reset function
+        bot_instance.reset_risk_management(full_reset=full_reset)
+        
+        return jsonify({
+            'success': True,
+            'message': f'Risk management counters reset {"(full reset)" if full_reset else ""}',
+            'risk_management': bot_instance.get_bot_status().get('risk_management', {})
+        }), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

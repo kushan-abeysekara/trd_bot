@@ -10,9 +10,11 @@ The trading bot includes several risk management features to help protect your a
 
 ### 1. Maximum Trades Per Session
 
-**Default: 20 trades**
+**Default: 100 trades**
 
-Limits the number of trades that can be executed in a single trading session. When this limit is reached, the bot will stop placing new trades until you reset the session or adjust the limit.
+Limits the number of trades that can be executed in a single trading session. When this limit is reached, the bot will stop placing new trades until you reset the session or adjust the limit. 
+
+You can disable this limit by setting it to 0 (unlimited trades).
 
 ### 2. Maximum Consecutive Losses
 
@@ -41,11 +43,24 @@ You can adjust risk limits through the bot's interface or by modifying the setti
 ```python
 # Example
 bot.set_risk_limits(
-    max_trades=30,       # Maximum 30 trades per session
+    max_trades=100,      # Maximum 100 trades per session
     max_losses=3,        # Stop after 3 consecutive losses
     max_daily_loss=50,   # Stop if daily losses exceed $50
-    cooling_period=15    # Wait 15 minutes after hitting limits
+    cooling_period=15,   # Wait 15 minutes after hitting limits
+    enabled=True         # Enable/disable all risk management
 )
+```
+
+### Disabling Trade Limits
+
+To disable the session trade limit completely:
+
+```python
+# Disable session trade limit (unlimited trades)
+bot.set_risk_limits(max_trades=0)
+
+# Alternative direct method
+bot.disable_session_limit()
 ```
 
 ### Resetting Risk Counters
@@ -56,6 +71,9 @@ To reset the risk management counters after hitting a limit:
 # Reset session-specific counters
 bot.reset_risk_management()
 
+# Reset only the session trade counter
+bot.reset_session_trade_counter()
+
 # Full reset (including daily loss counter)
 bot.reset_risk_management(full_reset=True)
 ```
@@ -64,9 +82,10 @@ bot.reset_risk_management(full_reset=True)
 
 The optimal risk settings depend on your trading strategy, account size, and risk tolerance. Here are some general recommendations:
 
-- **Conservative**: Max 10 trades, 3 consecutive losses, $20 daily loss, 30 min cooling
-- **Moderate**: Max 20 trades, 5 consecutive losses, $50 daily loss, 15 min cooling
-- **Aggressive**: Max 50 trades, 8 consecutive losses, $100 daily loss, 5 min cooling
+- **Conservative**: Max 30 trades, 3 consecutive losses, $20 daily loss, 30 min cooling
+- **Moderate**: Max 70 trades, 5 consecutive losses, $50 daily loss, 15 min cooling
+- **Aggressive**: Max 150 trades, 8 consecutive losses, $100 daily loss, 5 min cooling
+- **Professional**: Unlimited trades (0), 10 consecutive losses, $200 daily loss, no cooling
 
 ## Monitoring Risk Status
 
@@ -76,7 +95,7 @@ You can monitor the current risk status using the bot's status display:
 status = bot.get_bot_status()
 risk_info = status['risk_management']
 
-print(f"Trades: {risk_info['current_trades']}/{risk_info['max_trades_per_session']}")
+print(f"Trades: {risk_info['current_trades']}/{risk_info['max_trades_per_session'] or '∞'}")
 print(f"Consecutive losses: {risk_info['current_consecutive_losses']}")
 print(f"Daily loss: ${risk_info['current_daily_loss']}")
 ```
@@ -87,3 +106,5 @@ print(f"Daily loss: ${risk_info['current_daily_loss']}")
 2. **Daily Reset**: Perform a full reset at the start of each trading day
 3. **Adjust to Market**: Use stricter limits in volatile markets
 4. **Review After Limits**: When limits are hit, review your strategy before continuing
+5. **Set Higher Limits**: For active trading strategies, set higher session trade limits (100+)
+6. **Disable When Testing**: Consider disabling limits during strategy testing phases
