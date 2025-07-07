@@ -18,6 +18,7 @@ function App() {
   const [isTrading, setIsTrading] = useState(false);
   const [balance, setBalance] = useState(0);
   const balanceRef = useRef(0); // Keep a ref for balance comparisons
+  const initialBalanceRef = useRef(0); // Add a ref for tracking initial balance
   const [tradeAmount, setTradeAmount] = useState(1);
   const [stats, setStats] = useState({
     total_trades: 0,
@@ -76,10 +77,15 @@ function App() {
       if (response.data.connected) {
         setIsConnected(true);
         setBalance(response.data.balance || 0);
+        balanceRef.current = response.data.balance || 0;
+        
+        // Properly set initial balance
         if (response.data.initial_balance && response.data.initial_balance > 0) {
           setInitialBalance(response.data.initial_balance);
+          initialBalanceRef.current = response.data.initial_balance;
           // Calculate real profit based on initial balance
-          setRealProfit((response.data.balance || 0) - response.data.initial_balance);
+          const calculatedProfit = (response.data.balance || 0) - response.data.initial_balance;
+          setRealProfit(calculatedProfit);
         }
         setMessage('Successfully connected to Deriv API');
         setMessageType('success');
@@ -182,13 +188,19 @@ function App() {
         }
         
         // Update initial balance if provided and not set yet
-        if (data.initial_balance && data.initial_balance > 0 && initialBalance === 0) {
-          setInitialBalance(data.initial_balance);
+        if (data.initial_balance && data.initial_balance > 0) {
+          if (initialBalanceRef.current === 0) {
+            setInitialBalance(data.initial_balance);
+            initialBalanceRef.current = data.initial_balance;
+            console.log("Initial balance set to:", data.initial_balance);
+          }
         }
         
-        // Calculate real profit
-        if (data.balance && initialBalance > 0) {
-          setRealProfit(data.balance - initialBalance);
+        // Calculate real profit - ensure we have a valid initial balance first
+        if (data.balance && initialBalanceRef.current > 0) {
+          const calculatedProfit = data.balance - initialBalanceRef.current;
+          setRealProfit(calculatedProfit);
+          console.log("Real profit calculated:", calculatedProfit);
         }
         
       } catch (error) {
@@ -284,6 +296,12 @@ function App() {
     setBalance(newBalance);
     balanceRef.current = newBalance;
     
+    // Recalculate real profit when balance changes
+    if (initialBalanceRef.current > 0) {
+      const calculatedProfit = newBalance - initialBalanceRef.current;
+      setRealProfit(calculatedProfit);
+    }
+    
     // Show balance change notification only if it's a significant change (not initial load)
     if (oldBalance > 0 && Math.abs(newBalance - oldBalance) > 0.01) {
       const change = newBalance - oldBalance;
@@ -345,10 +363,15 @@ function App() {
             clearInterval(checkStatus);
             setIsConnected(true);
             setBalance(response.data.balance || 0);
+            balanceRef.current = response.data.balance || 0;
+            
+            // Properly set initial balance
             if (response.data.initial_balance && response.data.initial_balance > 0) {
               setInitialBalance(response.data.initial_balance);
+              initialBalanceRef.current = response.data.initial_balance;
               // Also calculate real profit right away
-              setRealProfit((response.data.balance || 0) - response.data.initial_balance);
+              const calculatedProfit = (response.data.balance || 0) - response.data.initial_balance;
+              setRealProfit(calculatedProfit);
             }
             setMessage('Successfully connected to Deriv API');
             setMessageType('success');
@@ -734,23 +757,23 @@ function App() {
           <div className="balance-section">
             <div className="balance-row">
               <span>Starting Balance:</span>
-              <span>{formatCurrency(initialBalance)}</span>
+              <span>{formatCurrency(initialBalance || 0)}</span>
             </div>
             <div className="balance-row">
               <span>Current Balance:</span>
-              <span>{formatCurrency(balance)}</span>
+              <span>{formatCurrency(balance || 0)}</span>
             </div>
             <div className="balance-row highlight">
               <span>Real Profit:</span>
               <span className={realProfit >= 0 ? 'profit' : 'loss'}>
-                {formatCurrency(realProfit)}
+                {realProfit !== 0 ? formatCurrency(realProfit) : '$0.00'}
               </span>
             </div>
           </div>
 
           <div className="balance-display" style={{ fontSize: '1.5rem', marginTop: '20px' }}>
             Total P&L: <span className={realProfit >= 0 ? 'profit' : 'loss'}>
-              {formatCurrency(realProfit)}
+              {realProfit !== 0 ? formatCurrency(realProfit) : '$0.00'}
             </span>
           </div>
         </div>

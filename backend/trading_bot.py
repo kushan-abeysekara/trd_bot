@@ -12,7 +12,7 @@ class TradingBot:
         self.api = DerivAPI(api_token)
         self.is_running = False
         self.trade_amount = 1.0
-        self.duration_ticks = 1  # Changed from 5 to 1 for single-tick trading
+        self.duration_minutes = 5  # Changed from ticks to minutes with default of 5 minutes
         self.trade_history = []
         self.stats = {
             'total_trades': 0,
@@ -33,9 +33,9 @@ class TradingBot:
         self.strategy_engine = StrategyEngine()
         self.strategy_scanning = False
         self.last_signal_time = 0
-        self.min_signal_interval = 2  # Reduced to 2 seconds for faster trading
+        self.min_signal_interval = 15  # Increased to 15 seconds for minute-based trading
         self.last_strategy_signals = {}  # Track last signal time per strategy
-        self.strategy_cooldown = 8  # Reduced to 8 seconds per individual strategy
+        self.strategy_cooldown = 60  # Increased to 60 seconds for minute-based trading
         self.signal_count = 0  # Track total signals received
         
         # Trading mode: 'random' or 'strategy'
@@ -74,11 +74,15 @@ class TradingBot:
         self.api.set_balance_callback(balance_update_callback)
         self.api.connect(connection_callback)
         
-    def start_trading(self, amount: float, duration: int = 1):  # Default to 1 tick
-        """Start automated trading"""
+    def start_trading(self, amount: float, duration: int = 5):  # Default to 5 minutes
+        """Start automated trading with minute-based duration"""
         self.trade_amount = amount
         self.default_trade_amount = amount  # Store the default amount
-        self.duration_ticks = 1  # Always use 1 tick regardless of input
+        
+        # Validate and set duration (between 5 and 15 minutes)
+        duration = max(5, min(15, duration))  # Ensure duration is between 5-15
+        self.duration_minutes = duration
+        
         self.is_running = True
         
         # Reset session tracking
@@ -126,7 +130,7 @@ class TradingBot:
             time.sleep(1)
             
     def _simulate_price_feed(self):
-        """Simulate live price feed for strategy analysis - ENHANCED for more signals"""
+        """Simulate live price feed for strategy analysis - MODIFIED for minute trading"""
         base_price = 1000.0
         price = base_price
         tick_counter = 0
@@ -136,21 +140,21 @@ class TradingBot:
             
             # Enhanced price movement simulation for better strategy triggering
             
-            # Base volatility with more variation
-            change = random.uniform(-0.4, 0.4)  # ±0.4% change (increased)
+            # Base volatility with more variation for longer timeframes
+            change = random.uniform(-0.6, 0.6)  # ±0.6% change (increased for minute-based)
             
-            # Add volatility spikes (25% chance - increased)
-            if random.random() < 0.25:
-                spike_intensity = random.uniform(0.6, 2.0)  # 0.6-2.0% spike (increased)
+            # Add volatility spikes (30% chance - increased for minute-based)
+            if random.random() < 0.30:
+                spike_intensity = random.uniform(0.8, 2.5)  # 0.8-2.5% spike (increased)
                 spike_direction = random.choice([-1, 1])
                 change += spike_direction * spike_intensity
                 print(f"📈 Price spike: {spike_direction * spike_intensity:.2f}%")
                 
-            # Add micro-trends (20% chance - increased)
-            if random.random() < 0.20:
-                trend_strength = random.uniform(0.15, 0.5)  # 0.15-0.5% trend
+            # Add micro-trends (25% chance - increased for minute-based)
+            if random.random() < 0.25:
+                trend_strength = random.uniform(0.2, 0.8)  # 0.2-0.8% trend
                 trend_direction = random.choice([-1, 1])
-                trend_length = random.randint(3, 8)  # 3-8 ticks in same direction
+                trend_length = random.randint(5, 12)  # 5-12 ticks in same direction
                 print(f"📊 Micro-trend: {trend_direction} direction, {trend_length} ticks")
                 
                 for i in range(trend_length):
@@ -158,46 +162,46 @@ class TradingBot:
                         break
                     price = price * (1 + (trend_direction * trend_strength) / 100)
                     self.strategy_engine.add_tick(price)
-                    time.sleep(random.uniform(0.2, 0.6))  # Faster tick intervals
+                    time.sleep(random.uniform(0.6, 1.2))  # Slower tick intervals for minute trading
                 continue
                 
-            # Add compression periods (12% chance)
-            if random.random() < 0.12:
-                compression_length = random.randint(5, 12)
+            # Add compression periods (15% chance)
+            if random.random() < 0.15:
+                compression_length = random.randint(8, 15)
                 print(f"📉 Compression period: {compression_length} ticks")
                 
                 for i in range(compression_length):
                     if not self.strategy_scanning:
                         break
-                    mini_change = random.uniform(-0.08, 0.08)  # Very small movements
+                    mini_change = random.uniform(-0.12, 0.12)  # Very small movements
                     price = price * (1 + mini_change / 100)
                     self.strategy_engine.add_tick(price)
-                    time.sleep(random.uniform(0.6, 1.0))
+                    time.sleep(random.uniform(0.8, 1.5))
                 continue
             
-            # Add divergence patterns (8% chance) - good for divergence strategies
-            if random.random() < 0.08:
+            # Add divergence patterns (12% chance) - good for divergence strategies
+            if random.random() < 0.12:
                 print(f"🔄 Divergence pattern starting...")
                 # Create price pattern that goes one way while momentum goes another
                 divergence_direction = random.choice([-1, 1])
-                for i in range(4):
+                for i in range(6):
                     if not self.strategy_scanning:
                         break
                     # Price goes one way
-                    price_change = divergence_direction * 0.2
+                    price_change = divergence_direction * 0.3
                     price = price * (1 + price_change / 100)
                     self.strategy_engine.add_tick(price)
-                    time.sleep(random.uniform(0.4, 0.8))
+                    time.sleep(random.uniform(0.7, 1.2))
                 continue
             
             # Apply normal price movement
             price = price * (1 + change / 100)
             
             # Ensure price doesn't go too far from base
-            if price < base_price * 0.93:  # Allow more range
-                price = base_price * 0.93
-            elif price > base_price * 1.07:
-                price = base_price * 1.07
+            if price < base_price * 0.90:  # Allow more range for minute-based
+                price = base_price * 0.90
+            elif price > base_price * 1.10:
+                price = base_price * 1.10
                 
             # Feed price to strategy engine
             self.strategy_engine.add_tick(price)
@@ -209,32 +213,32 @@ class TradingBot:
                       f"Vol={indicators.get('volatility', 0):.2f}%, MACD={indicators.get('macd', 0):.3f}")
             
             # Variable tick intervals for realistic market simulation (faster)
-            time.sleep(random.uniform(0.15, 0.8))  # 150ms to 800ms intervals
+            time.sleep(random.uniform(0.4, 1.2))  # 400ms to 1.2s intervals
             
     def _handle_strategy_signal(self, signal: TradeSignal):
-        """Handle trade signal from strategy engine - OPTIMIZED FOR FAST TRADING"""
+        """Handle trade signal from strategy engine - MODIFIED FOR MINUTE TRADING"""
         current_time = time.time()
         self.signal_count += 1
         
         print(f"📡 Signal #{self.signal_count} received: {signal.strategy_name} ({signal.confidence:.2f})")
         
-        # Global signal interval check - much shorter now
+        # Global signal interval check - longer for minute-based trading
         if current_time - self.last_signal_time < self.min_signal_interval:
             remaining = self.min_signal_interval - (current_time - self.last_signal_time)
             print(f"⏰ Global cooldown - {remaining:.1f}s remaining")
             return
         
-        # Individual strategy cooldown check - OPTIMIZED based on confidence
+        # Individual strategy cooldown check - OPTIMIZED for minute trading
         strategy_name = signal.strategy_name
         dynamic_cooldown = self.strategy_cooldown
         
-        # High-confidence signals get SHORTER cooldowns, not longer!
+        # High-confidence signals get SHORTER cooldowns
         if signal.confidence > 0.85:
-            dynamic_cooldown = 4  # Only 4 seconds for high-confidence signals
+            dynamic_cooldown = 30  # 30 seconds for high-confidence signals in minute trading
             print(f"🔥 High-confidence signal - reduced cooldown to {dynamic_cooldown}s")
         elif signal.confidence > 0.75:
-            dynamic_cooldown = 6  # 6 seconds for good signals
-        # else use default 8 seconds
+            dynamic_cooldown = 45  # 45 seconds for good signals
+        # else use default 60 seconds
         
         if strategy_name in self.last_strategy_signals:
             time_since_last = current_time - self.last_strategy_signals[strategy_name]
@@ -243,9 +247,9 @@ class TradingBot:
                 print(f"❄️  Strategy {strategy_name} cooldown - {remaining_cooldown:.1f}s remaining")
                 return
         
-        # EMERGENCY BYPASS: If no trades for 30 seconds, accept any signal
-        if current_time - self.last_signal_time > 30:
-            print(f"🚨 EMERGENCY BYPASS: No trades for 30s, accepting signal!")
+        # EMERGENCY BYPASS: If no trades for 2 minutes, accept any signal
+        if current_time - self.last_signal_time > 120:
+            print(f"🚨 EMERGENCY BYPASS: No trades for 2 minutes, accepting signal!")
             
         # Update timing trackers
         self.last_signal_time = current_time
@@ -267,7 +271,7 @@ class TradingBot:
         current_trade_amount = self.default_trade_amount * 2 if self.next_double_trade else self.default_trade_amount
         
         print(f"🎯 EXECUTING TRADE #{self.stats['total_trades'] + 1}: {signal.strategy_name}")
-        print(f"   Direction: {signal.direction} | Confidence: {signal.confidence:.2f} | Hold: {signal.hold_time}s")
+        print(f"   Direction: {signal.direction} | Confidence: {signal.confidence:.2f} | Duration: {self.duration_minutes}m")
         if self.next_double_trade:
             print(f"   💰 DOUBLE STAKE TRADE: ${current_trade_amount}")
         print(f"   Reason: {signal.entry_reason}")
@@ -292,6 +296,7 @@ class TradingBot:
                     'entry_reason': signal.entry_reason,
                     'conditions_met': signal.conditions_met,
                     'hold_time': signal.hold_time,
+                    'duration_minutes': self.duration_minutes,  # Add minutes duration
                     'indicators': self.strategy_engine.get_current_indicators(),
                     'total_strategies': 35,
                     'trade_number': self.stats['total_trades'] + 1,
@@ -346,7 +351,8 @@ class TradingBot:
                                 'type': signal.direction,
                                 'amount': amount_to_trade,
                                 'buy_price': buy_price,
-                                'duration': signal.hold_time,  # Use signal hold time
+                                'duration': self.duration_minutes,  # Use minute-based duration
+                                'duration_type': 'minutes',  # Specify duration type as minutes
                                 'timestamp': datetime.now().isoformat(),
                                 'status': 'active',
                                 'strategy_name': signal.strategy_name,
@@ -390,9 +396,9 @@ class TradingBot:
             except Exception as e:
                 print(f"❌ Error in proposal callback: {e}")
                 
-        # Get proposal (non-blocking)
+        # Get proposal for minute-based trading (non-blocking)
         try:
-            self.api.get_proposal(signal.direction, self.duration_ticks, amount_to_trade, proposal_callback)
+            self.api.get_proposal_minutes(signal.direction, self.duration_minutes, amount_to_trade, proposal_callback)
         except Exception as e:
             print(f"❌ Error getting proposal: {e}")
 
@@ -461,17 +467,31 @@ class TradingBot:
         result_thread.start()
 
     def _simulate_strategy_trade_result(self, trade_info, signal: TradeSignal):
-        """Simulate trade result based on strategy confidence"""
+        """Simulate trade result based on strategy confidence for minute-based trades"""
         def delayed_result():
-            # Use shorter wait time for 1-tick trades
-            time.sleep(2)  # Wait 2 seconds for 1-tick result
+            # Calculate wait time based on minute duration (accelerated for simulation)
+            # Each minute of actual duration simulated as 5 seconds
+            simulation_duration = trade_info['duration'] * 5  # 5 seconds per minute
+            
+            print(f"⏳ Simulating {trade_info['duration']} minute trade (waiting {simulation_duration} seconds)...")
+            time.sleep(simulation_duration)  # Wait for simulated duration
             
             # Win probability based on strategy confidence
             win_probability = 0.5 + (signal.confidence * 0.3)  # 50% base + 30% max bonus
+            
+            # Adjust win probability based on duration
+            # Longer durations have slightly lower win probability (more market uncertainty)
+            duration_factor = 1 - ((trade_info['duration'] - 5) * 0.01)  # 1% reduction per minute above 5
+            win_probability *= duration_factor
+            
             is_win = random.random() < win_probability
             
             if is_win:
-                payout = trade_info['buy_price'] * 1.95  # 95% payout
+                # Payouts decrease slightly as duration increases (higher risk premium)
+                payout_multiplier = 1.95 - ((trade_info['duration'] - 5) * 0.01)  # 1% reduction per minute above 5
+                payout_multiplier = max(1.7, payout_multiplier)  # Don't go below 1.7x
+                
+                payout = trade_info['buy_price'] * payout_multiplier
                 profit_loss = payout - trade_info['buy_price']
                 self.stats['winning_trades'] += 1
             else:
@@ -496,11 +516,11 @@ class TradingBot:
             trade_info['profit_loss'] = profit_loss
             trade_info['status'] = 'completed'
             trade_info['actual_win_probability'] = win_probability
-            trade_info['strategy_name'] = signal.strategy_name
             trade_info['session_profit_loss'] = self.session_profit_loss
             trade_info['balance_after'] = updated_balance
             trade_info['initial_balance'] = self.initial_balance
             trade_info['real_profit'] = updated_balance - self.initial_balance
+            trade_info['payout_multiplier'] = payout_multiplier if is_win else 0
             
             print(f"💰 Trade Result: {trade_info['result'].upper()} | "
                   f"P&L: ${profit_loss:.2f} | "
@@ -584,7 +604,7 @@ class TradingBot:
         strategy_cooldown_status = {}
         for strategy, last_time in self.last_strategy_signals.items():
             time_since = current_time - last_time
-            dynamic_cooldown = 8  # default
+            dynamic_cooldown = 60  # default
             # Apply same logic as in _handle_strategy_signal
             strategy_cooldown_status[strategy] = {
                 'last_signal_time': last_time,

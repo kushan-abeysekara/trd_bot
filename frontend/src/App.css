@@ -797,3 +797,49 @@ code {
 .trade-item.double-stake {
   border-left: 3px solid #ffcc00;
 }
+
+/* Add this to the end of your existing CSS */
+
+.slider-container {
+  width: 100%;
+  margin: 10px 0;
+}
+
+.slider {
+  -webkit-appearance: none;
+  width: 100%;
+  height: 10px;
+  border-radius: 5px;
+  background: #d3d3d3;
+  outline: none;
+  opacity: 0.8;
+  -webkit-transition: .2s;
+  transition: opacity .2s;
+}
+
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #4CAF50;
+  cursor: pointer;
+}
+
+.slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #4CAF50;
+  cursor: pointer;
+}
+
+.slider-labels {
+  display: flex;
+  justify-content: space-between;
+  padding: 0 10px;
+  margin-top: 5px;
+  font-size: 0.8rem;
+  color: #666;
+}
