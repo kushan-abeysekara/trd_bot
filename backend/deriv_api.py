@@ -141,6 +141,35 @@ class DerivAPI:
         self.ws.send(json.dumps(proposal_request))
         self.req_id += 1
         
+    def get_proposal_minutes(self, contract_type: str, duration_minutes: int, amount: float, callback):
+        """Get contract proposal for minute-based trades"""
+        if not self.is_connected:
+            callback({"error": {"message": "Not connected to API"}})
+            return
+            
+        proposal_request = {
+            "proposal": 1,
+            "amount": amount,
+            "basis": "stake",
+            "contract_type": contract_type,
+            "currency": "USD",
+            "duration": duration_minutes,
+            "duration_unit": "m",  # minutes
+            "symbol": "R_100",  # Volatility 100 Index
+            "req_id": self.req_id
+        }
+        
+        print(f"Requesting proposal for {contract_type} trade, {duration_minutes}m duration, ${amount} stake")
+        self.callbacks[self.req_id] = callback
+        try:
+            self.ws.send(json.dumps(proposal_request))
+            print(f"Proposal request sent with req_id: {self.req_id}")
+        except Exception as e:
+            print(f"Error sending proposal request: {e}")
+            callback({"error": {"message": f"Failed to send request: {str(e)}"}})
+            
+        self.req_id += 1
+    
     def buy_contract(self, proposal_id: str, price: float, callback):
         """Buy a contract"""
         if not self.is_connected:
@@ -163,10 +192,17 @@ class DerivAPI:
             "req_id": self.req_id
         }
         
+        print(f"Buying contract with proposal ID: {proposal_id}, price: ${price}")
         self.callbacks[self.req_id] = enhanced_callback
-        self.ws.send(json.dumps(buy_request))
+        try:
+            self.ws.send(json.dumps(buy_request))
+            print(f"Buy request sent with req_id: {self.req_id}")
+        except Exception as e:
+            print(f"Error sending buy request: {e}")
+            callback({"error": {"message": f"Failed to send buy request: {str(e)}"}})
+            
         self.req_id += 1
-        
+    
     def update_balance(self, profit_loss: float):
         """Update balance with profit/loss from trade"""
         self.balance += profit_loss
