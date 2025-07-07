@@ -10,6 +10,7 @@ axios.defaults.baseURL = API_BASE_URL;
 
 // Polling interval in milliseconds
 const POLLING_INTERVAL = 2000; // 2 seconds
+const HEARTBEAT_INTERVAL = 15000; // 15 seconds
 
 function App() {
   const [apiToken, setApiToken] = useState('');
@@ -49,6 +50,7 @@ function App() {
   
   // Polling references
   const pollingRef = useRef(null);
+  const heartbeatRef = useRef(null);
 
   // Check connection status on initial load
   useEffect(() => {
@@ -59,7 +61,11 @@ function App() {
   useEffect(() => {
     if (isConnected) {
       startPolling();
-      return () => stopPolling();
+      startHeartbeat();
+      return () => {
+        stopPolling();
+        stopHeartbeat();
+      }
     }
   }, [isConnected]);
 
@@ -84,9 +90,46 @@ function App() {
         fetchSessionStats();
         fetchIndicators();
         fetchLatestSignal();
+        
+        // Start heartbeat immediately
+        startHeartbeat();
       }
     } catch (error) {
       console.error('Error checking connection status:', error);
+    }
+  };
+
+  // Start heartbeat to keep connection alive
+  const startHeartbeat = () => {
+    if (heartbeatRef.current) return;
+    
+    // Send a heartbeat every HEARTBEAT_INTERVAL
+    const sendHeartbeat = async () => {
+      if (!isConnected) return;
+      
+      try {
+        const response = await axios.post('/api/heartbeat');
+        if (!response.data.connected) {
+          // Connection lost, attempt to reconnect
+          checkConnectionStatus();
+        }
+      } catch (error) {
+        console.error('Heartbeat error:', error);
+      }
+    };
+    
+    // Send initial heartbeat
+    sendHeartbeat();
+    
+    // Setup heartbeat interval
+    heartbeatRef.current = setInterval(sendHeartbeat, HEARTBEAT_INTERVAL);
+  };
+  
+  // Stop heartbeat
+  const stopHeartbeat = () => {
+    if (heartbeatRef.current) {
+      clearInterval(heartbeatRef.current);
+      heartbeatRef.current = null;
     }
   };
 
@@ -293,7 +336,7 @@ function App() {
       
       // Poll for connection status
       let attempts = 0;
-      const maxAttempts = 10;
+      const maxAttempts = 15; // Increased attempts
       const checkStatus = setInterval(async () => {
         try {
           attempts++;
@@ -309,6 +352,9 @@ function App() {
             }
             setMessage('Successfully connected to Deriv API');
             setMessageType('success');
+            
+            // Start heartbeat immediately
+            startHeartbeat();
           } else if (attempts >= maxAttempts) {
             clearInterval(checkStatus);
             setMessage('Connection timed out. Please try again.');
@@ -373,6 +419,7 @@ function App() {
       setMessage('Disconnected from Deriv API');
       setMessageType('success');
       stopPolling();
+      stopHeartbeat();
     } catch (error) {
       setMessage(error.response?.data?.error || 'Failed to disconnect');
       setMessageType('error');
