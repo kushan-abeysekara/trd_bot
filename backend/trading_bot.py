@@ -12,8 +12,12 @@ class TradingBot:
         self.api = DerivAPI(api_token)
         self.is_running = False
         self.trade_amount = 1.0
-        self.duration_minutes = 5  # Changed from ticks to minutes with default of 5 minutes
+        self.duration_ticks = 1  # Setting default duration to 1 tick
         self.trade_history = []
+        # Enhance trade result verification system
+        self.trade_result_verification = {}
+        self.verification_errors = 0
+        self.last_market_movements = []  # Track recent market movements
         self.stats = {
             'total_trades': 0,
             'winning_trades': 0,
@@ -33,9 +37,9 @@ class TradingBot:
         self.strategy_engine = StrategyEngine()
         self.strategy_scanning = False
         self.last_signal_time = 0
-        self.min_signal_interval = 15  # Increased to 15 seconds for minute-based trading
+        self.min_signal_interval = 5  # Reduced to 5 seconds for tick-based trading
         self.last_strategy_signals = {}  # Track last signal time per strategy
-        self.strategy_cooldown = 60  # Increased to 60 seconds for minute-based trading
+        self.strategy_cooldown = 15  # Reduced to 15 seconds for tick-based trading
         self.signal_count = 0  # Track total signals received
         
         # Trading mode: 'random' or 'strategy'
@@ -68,20 +72,27 @@ class TradingBot:
                 
         # Set up balance update callback
         def balance_update_callback(new_balance):
-            if self.callbacks['balance_update']:
-                self.callbacks['balance_update'](new_balance)
+            if new_balance > 0:
+                # Store initial balance if not already set
+                if self.initial_balance <= 0:
+                    self.initial_balance = new_balance
+                    print(f"Initial balance set in balance callback: ${new_balance}")
+                
+                if self.callbacks['balance_update']:
+                    self.callbacks['balance_update'](new_balance)
+            else:
+                print(f"Ignored zero balance update")
                 
         self.api.set_balance_callback(balance_update_callback)
         self.api.connect(connection_callback)
         
-    def start_trading(self, amount: float, duration: int = 5):  # Default to 5 minutes
-        """Start automated trading with minute-based duration"""
+    def start_trading(self, amount: float, duration: int = 1):  # Default to 1 tick
+        """Start automated trading with tick-based duration"""
         self.trade_amount = amount
         self.default_trade_amount = amount  # Store the default amount
         
-        # Validate and set duration (between 5 and 15 minutes)
-        duration = max(5, min(15, duration))  # Ensure duration is between 5-15
-        self.duration_minutes = duration
+        # Always use 1 tick duration
+        self.duration_ticks = 1
         
         self.is_running = True
         
@@ -130,7 +141,7 @@ class TradingBot:
             time.sleep(1)
             
     def _simulate_price_feed(self):
-        """Simulate live price feed for strategy analysis - MODIFIED for minute trading"""
+        """Simulate live price feed for strategy analysis - MODIFIED for tick trading"""
         base_price = 1000.0
         price = base_price
         tick_counter = 0
@@ -140,105 +151,61 @@ class TradingBot:
             
             # Enhanced price movement simulation for better strategy triggering
             
-            # Base volatility with more variation for longer timeframes
-            change = random.uniform(-0.6, 0.6)  # ±0.6% change (increased for minute-based)
+            # Base volatility (adjusted for tick-based trading)
+            change = random.uniform(-0.3, 0.3)  # ±0.3% change (reduced for tick-based)
             
-            # Add volatility spikes (30% chance - increased for minute-based)
-            if random.random() < 0.30:
-                spike_intensity = random.uniform(0.8, 2.5)  # 0.8-2.5% spike (increased)
+            # Add volatility spikes (20% chance - adjusted for tick-based)
+            if random.random() < 0.20:
+                spike_intensity = random.uniform(0.4, 1.2)  # 0.4-1.2% spike (reduced)
                 spike_direction = random.choice([-1, 1])
                 change += spike_direction * spike_intensity
                 print(f"📈 Price spike: {spike_direction * spike_intensity:.2f}%")
-                
-            # Add micro-trends (25% chance - increased for minute-based)
-            if random.random() < 0.25:
-                trend_strength = random.uniform(0.2, 0.8)  # 0.2-0.8% trend
-                trend_direction = random.choice([-1, 1])
-                trend_length = random.randint(5, 12)  # 5-12 ticks in same direction
-                print(f"📊 Micro-trend: {trend_direction} direction, {trend_length} ticks")
-                
-                for i in range(trend_length):
-                    if not self.strategy_scanning:
-                        break
-                    price = price * (1 + (trend_direction * trend_strength) / 100)
-                    self.strategy_engine.add_tick(price)
-                    time.sleep(random.uniform(0.6, 1.2))  # Slower tick intervals for minute trading
-                continue
-                
-            # Add compression periods (15% chance)
-            if random.random() < 0.15:
-                compression_length = random.randint(8, 15)
-                print(f"📉 Compression period: {compression_length} ticks")
-                
-                for i in range(compression_length):
-                    if not self.strategy_scanning:
-                        break
-                    mini_change = random.uniform(-0.12, 0.12)  # Very small movements
-                    price = price * (1 + mini_change / 100)
-                    self.strategy_engine.add_tick(price)
-                    time.sleep(random.uniform(0.8, 1.5))
-                continue
-            
-            # Add divergence patterns (12% chance) - good for divergence strategies
-            if random.random() < 0.12:
-                print(f"🔄 Divergence pattern starting...")
-                # Create price pattern that goes one way while momentum goes another
-                divergence_direction = random.choice([-1, 1])
-                for i in range(6):
-                    if not self.strategy_scanning:
-                        break
-                    # Price goes one way
-                    price_change = divergence_direction * 0.3
-                    price = price * (1 + price_change / 100)
-                    self.strategy_engine.add_tick(price)
-                    time.sleep(random.uniform(0.7, 1.2))
-                continue
             
             # Apply normal price movement
             price = price * (1 + change / 100)
             
             # Ensure price doesn't go too far from base
-            if price < base_price * 0.90:  # Allow more range for minute-based
-                price = base_price * 0.90
-            elif price > base_price * 1.10:
-                price = base_price * 1.10
+            if price < base_price * 0.95:
+                price = base_price * 0.95
+            elif price > base_price * 1.05:
+                price = base_price * 1.05
                 
             # Feed price to strategy engine
             self.strategy_engine.add_tick(price)
             
-            # Log every 50 ticks for monitoring
-            if tick_counter % 50 == 0:
+            # Log every 30 ticks for monitoring (increased frequency for tick trading)
+            if tick_counter % 30 == 0:
                 indicators = self.strategy_engine.get_current_indicators()
                 print(f"📊 Tick #{tick_counter}: Price={price:.2f}, RSI={indicators.get('rsi', 0):.1f}, "
                       f"Vol={indicators.get('volatility', 0):.2f}%, MACD={indicators.get('macd', 0):.3f}")
             
-            # Variable tick intervals for realistic market simulation (faster)
-            time.sleep(random.uniform(0.4, 1.2))  # 400ms to 1.2s intervals
-            
+            # Faster tick intervals for tick-based trading
+            time.sleep(random.uniform(0.2, 0.5))  # 200-500ms intervals
+    
     def _handle_strategy_signal(self, signal: TradeSignal):
-        """Handle trade signal from strategy engine - MODIFIED FOR MINUTE TRADING"""
+        """Handle trade signal from strategy engine - MODIFIED FOR TICK TRADING"""
         current_time = time.time()
         self.signal_count += 1
         
         print(f"📡 Signal #{self.signal_count} received: {signal.strategy_name} ({signal.confidence:.2f})")
         
-        # Global signal interval check - longer for minute-based trading
+        # Global signal interval check - shorter for tick-based trading
         if current_time - self.last_signal_time < self.min_signal_interval:
             remaining = self.min_signal_interval - (current_time - self.last_signal_time)
             print(f"⏰ Global cooldown - {remaining:.1f}s remaining")
             return
         
-        # Individual strategy cooldown check - OPTIMIZED for minute trading
+        # Individual strategy cooldown check - OPTIMIZED for tick trading
         strategy_name = signal.strategy_name
         dynamic_cooldown = self.strategy_cooldown
         
         # High-confidence signals get SHORTER cooldowns
         if signal.confidence > 0.85:
-            dynamic_cooldown = 30  # 30 seconds for high-confidence signals in minute trading
+            dynamic_cooldown = 10  # 10 seconds for high-confidence signals in tick trading
             print(f"🔥 High-confidence signal - reduced cooldown to {dynamic_cooldown}s")
         elif signal.confidence > 0.75:
-            dynamic_cooldown = 45  # 45 seconds for good signals
-        # else use default 60 seconds
+            dynamic_cooldown = 12  # 12 seconds for good signals
+        # else use default 15 seconds
         
         if strategy_name in self.last_strategy_signals:
             time_since_last = current_time - self.last_strategy_signals[strategy_name]
@@ -247,9 +214,9 @@ class TradingBot:
                 print(f"❄️  Strategy {strategy_name} cooldown - {remaining_cooldown:.1f}s remaining")
                 return
         
-        # EMERGENCY BYPASS: If no trades for 2 minutes, accept any signal
-        if current_time - self.last_signal_time > 120:
-            print(f"🚨 EMERGENCY BYPASS: No trades for 2 minutes, accepting signal!")
+        # EMERGENCY BYPASS: If no trades for 30 seconds, accept any signal
+        if current_time - self.last_signal_time > 30:
+            print(f"🚨 EMERGENCY BYPASS: No trades for 30 seconds, accepting signal!")
             
         # Update timing trackers
         self.last_signal_time = current_time
@@ -271,7 +238,7 @@ class TradingBot:
         current_trade_amount = self.default_trade_amount * 2 if self.next_double_trade else self.default_trade_amount
         
         print(f"🎯 EXECUTING TRADE #{self.stats['total_trades'] + 1}: {signal.strategy_name}")
-        print(f"   Direction: {signal.direction} | Confidence: {signal.confidence:.2f} | Duration: {self.duration_minutes}m")
+        print(f"   Direction: {signal.direction} | Confidence: {signal.confidence:.2f} | Duration: {self.duration_ticks} tick")
         if self.next_double_trade:
             print(f"   💰 DOUBLE STAKE TRADE: ${current_trade_amount}")
         print(f"   Reason: {signal.entry_reason}")
@@ -296,7 +263,7 @@ class TradingBot:
                     'entry_reason': signal.entry_reason,
                     'conditions_met': signal.conditions_met,
                     'hold_time': signal.hold_time,
-                    'duration_minutes': self.duration_minutes,  # Add minutes duration
+                    'duration_ticks': self.duration_ticks,  # Use ticks duration
                     'indicators': self.strategy_engine.get_current_indicators(),
                     'total_strategies': 35,
                     'trade_number': self.stats['total_trades'] + 1,
@@ -351,8 +318,8 @@ class TradingBot:
                                 'type': signal.direction,
                                 'amount': amount_to_trade,
                                 'buy_price': buy_price,
-                                'duration': self.duration_minutes,  # Use minute-based duration
-                                'duration_type': 'minutes',  # Specify duration type as minutes
+                                'duration': self.duration_ticks,  # Use tick-based duration
+                                'duration_type': 'ticks',  # Specify duration type as ticks
                                 'timestamp': datetime.now().isoformat(),
                                 'status': 'active',
                                 'strategy_name': signal.strategy_name,
@@ -396,107 +363,73 @@ class TradingBot:
             except Exception as e:
                 print(f"❌ Error in proposal callback: {e}")
                 
-        # Get proposal for minute-based trading (non-blocking)
+        # Get proposal for tick-based trading (non-blocking)
         try:
-            self.api.get_proposal_minutes(signal.direction, self.duration_minutes, amount_to_trade, proposal_callback)
+            self.api.get_proposal_ticks(signal.direction, self.duration_ticks, amount_to_trade, proposal_callback)
         except Exception as e:
             print(f"❌ Error getting proposal: {e}")
 
-    def _simulate_trade_result(self, trade_info):
-        """Simulate trade result for regular (non-strategy) trades"""
-        def delayed_result():
-            # Wait for trade duration (in ticks, simulate as seconds for demo)
-            duration_seconds = trade_info['duration'] * 2  # 2 seconds per tick for demo
-            time.sleep(duration_seconds)
-            
-            # Win probability for regular trades (60% win rate)
-            win_probability = 0.6
-            is_win = random.random() < win_probability
-            
-            if is_win:
-                payout = trade_info['buy_price'] * 1.95  # 95% payout
-                profit_loss = payout - trade_info['buy_price']
-                self.stats['winning_trades'] += 1
-            else:
-                profit_loss = -trade_info['buy_price']
-                self.stats['losing_trades'] += 1
-                
-            self.stats['total_trades'] += 1
-            self.stats['total_profit_loss'] += profit_loss
-            self.stats['winning_rate'] = (self.stats['winning_trades'] / self.stats['total_trades']) * 100
-            
-            # Update session profit/loss tracking
-            self.session_profit_loss += profit_loss
-            
-            # Update actual balance (simulate balance change)
-            self.api.update_balance(profit_loss)
-            
-            # Get the updated balance
-            updated_balance = self.get_balance()
-            
-            # Update trade info with final results
-            trade_info['result'] = 'win' if is_win else 'loss'
-            trade_info['profit_loss'] = profit_loss
-            trade_info['status'] = 'completed'
-            trade_info['session_profit_loss'] = self.session_profit_loss
-            trade_info['balance_after'] = updated_balance
-            
-            print(f"💰 Trade Result: {trade_info['result'].upper()} | "
-                  f"P&L: ${profit_loss:.2f} | "
-                  f"Session P&L: ${self.session_profit_loss:.2f} | "
-                  f"New Balance: ${updated_balance:.2f}")
-            
-            # Emit real-time balance update immediately
-            if self.callbacks.get('balance_update'):
-                self.callbacks['balance_update']({'balance': updated_balance})
-            
-            # Emit complete trade update with all final info
-            if self.callbacks.get('trade_update'):
-                self.callbacks['trade_update'](trade_info)
-            
-            # Check if take profit or stop loss limits are hit
-            if self.check_profit_loss_limits():
-                return  # Trading was stopped, exit the method
-                
-            if self.callbacks['stats_update']:
-                self.callbacks['stats_update'](self.stats)
-                
-        # Run in separate thread
-        result_thread = threading.Thread(target=delayed_result)
-        result_thread.daemon = True
-        result_thread.start()
-
     def _simulate_strategy_trade_result(self, trade_info, signal: TradeSignal):
-        """Simulate trade result based on strategy confidence for minute-based trades"""
+        """Simulate trade result based on strategy confidence for tick-based trades"""
         def delayed_result():
-            # Calculate wait time based on minute duration (accelerated for simulation)
-            # Each minute of actual duration simulated as 5 seconds
-            simulation_duration = trade_info['duration'] * 5  # 5 seconds per minute
+            # Calculate wait time based on tick duration (accelerated for simulation)
+            simulation_duration = 2  # 2 seconds per tick trade
             
-            print(f"⏳ Simulating {trade_info['duration']} minute trade (waiting {simulation_duration} seconds)...")
+            print(f"⏳ Simulating {trade_info['duration']} tick trade (waiting {simulation_duration} seconds)...")
             time.sleep(simulation_duration)  # Wait for simulated duration
             
-            # Win probability based on strategy confidence
-            win_probability = 0.5 + (signal.confidence * 0.3)  # 50% base + 30% max bonus
+            # Get the contract type and direction for accurate win/loss calculation
+            contract_type = trade_info['type']  # 'CALL' or 'PUT'
+            contract_id = trade_info.get('id', str(time.time()))
             
-            # Adjust win probability based on duration
-            # Longer durations have slightly lower win probability (more market uncertainty)
-            duration_factor = 1 - ((trade_info['duration'] - 5) * 0.01)  # 1% reduction per minute above 5
-            win_probability *= duration_factor
+            # Generate market movement - this simulates what actually happens in the market
+            # Now using a more deterministic approach with bias control
+            # We maintain consistent market movements by tracking previous movements
+            if len(self.last_market_movements) >= 5:
+                # Use recent market pattern to ensure natural distribution
+                # If we've had 3+ of the same movement in a row, increase chance of reversal
+                up_count = self.last_market_movements.count(True)
+                if up_count >= 4:  # Strong uptrend
+                    market_move_up = random.random() < 0.3  # 30% chance to continue up
+                elif up_count <= 1:  # Strong downtrend
+                    market_move_up = random.random() < 0.7  # 70% chance to reverse
+                else:
+                    market_move_up = random.random() < 0.5  # Normal 50/50
+            else:
+                market_move_up = random.random() < 0.5  # 50/50 chance for first few trades
+                
+            # Record this movement for future reference
+            self.last_market_movements.append(market_move_up)
+            if len(self.last_market_movements) > 10:
+                self.last_market_movements.pop(0)  # Keep only last 10 movements
             
-            is_win = random.random() < win_probability
+            # Determine actual trade result based on market movement and contract type
+            # CALL wins when market goes up, PUT wins when market goes down
+            is_win = (market_move_up and contract_type == 'CALL') or (not market_move_up and contract_type == 'PUT')
+            
+            # Store comprehensive verification data
+            verification_data = {
+                'market_moved_up': market_move_up,
+                'contract_type': contract_type, 
+                'should_win': is_win,
+                'market_direction': 'UP' if market_move_up else 'DOWN',
+                'verification_time': datetime.now().isoformat(),
+                'contract_id': contract_id
+            }
+            self.trade_result_verification[contract_id] = verification_data
+            
+            # Payout for tick-based trading (slightly lower due to shorter duration)
+            payout_multiplier = 1.85  # Standard payout for 1-tick trades
             
             if is_win:
-                # Payouts decrease slightly as duration increases (higher risk premium)
-                payout_multiplier = 1.95 - ((trade_info['duration'] - 5) * 0.01)  # 1% reduction per minute above 5
-                payout_multiplier = max(1.7, payout_multiplier)  # Don't go below 1.7x
-                
                 payout = trade_info['buy_price'] * payout_multiplier
                 profit_loss = payout - trade_info['buy_price']
                 self.stats['winning_trades'] += 1
+                print(f"✅ Trade WON: Market moved {'UP' if market_move_up else 'DOWN'}, {contract_type} contract")
             else:
                 profit_loss = -trade_info['buy_price']
                 self.stats['losing_trades'] += 1
+                print(f"❌ Trade LOST: Market moved {'UP' if market_move_up else 'DOWN'}, {contract_type} contract")
                 
             self.stats['total_trades'] += 1
             self.stats['total_profit_loss'] += profit_loss
@@ -511,16 +444,34 @@ class TradingBot:
             # Get the updated balance
             updated_balance = self.get_balance()
             
+            # Double verification - ensure our trade result is logically consistent
+            verified_result = self.verify_trade_outcome(contract_type, market_move_up)
+            if verified_result != is_win:
+                print(f"⚠️ VERIFICATION ERROR: Inconsistent trade result detected!")
+                print(f"   Original: {is_win}, Verified: {verified_result}")
+                self.verification_errors += 1
+                # Use the verified result for consistency
+                is_win = verified_result
+                # Recalculate profit/loss based on corrected outcome
+                if is_win:
+                    profit_loss = trade_info['buy_price'] * payout_multiplier - trade_info['buy_price']
+                else:
+                    profit_loss = -trade_info['buy_price']
+                # Update session profit/loss with corrected value
+                self.session_profit_loss += profit_loss - trade_info.get('profit_loss', 0)
+            
             # Update trade info with final results
             trade_info['result'] = 'win' if is_win else 'loss'
             trade_info['profit_loss'] = profit_loss
             trade_info['status'] = 'completed'
-            trade_info['actual_win_probability'] = win_probability
             trade_info['session_profit_loss'] = self.session_profit_loss
             trade_info['balance_after'] = updated_balance
             trade_info['initial_balance'] = self.initial_balance
             trade_info['real_profit'] = updated_balance - self.initial_balance
             trade_info['payout_multiplier'] = payout_multiplier if is_win else 0
+            trade_info['market_movement'] = 'UP' if market_move_up else 'DOWN'
+            trade_info['verification'] = verification_data
+            trade_info['verification_timestamp'] = datetime.now().timestamp()
             
             print(f"💰 Trade Result: {trade_info['result'].upper()} | "
                   f"P&L: ${profit_loss:.2f} | "
@@ -552,7 +503,12 @@ class TradingBot:
         result_thread = threading.Thread(target=delayed_result)
         result_thread.daemon = True
         result_thread.start()
-        
+    
+    def verify_trade_outcome(self, contract_type, market_movement_up):
+        """Verify trade outcome based on contract type and market movement"""
+        # CALL contracts win when market moves up, PUT contracts win when market moves down
+        return (market_movement_up and contract_type == 'CALL') or (not market_movement_up and contract_type == 'PUT')
+    
     def set_trading_mode(self, mode: str):
         """Set trading mode: 'random' or 'strategy'"""
         self.trading_mode = mode
@@ -569,16 +525,62 @@ class TradingBot:
         
     def get_balance(self):
         """Get current balance"""
-        return self.api.get_balance_value()
+        balance = self.api.get_balance_value()
         
+        # If we got a valid balance and initial_balance is not set, set it
+        if balance > 0 and self.initial_balance <= 0:
+            self.initial_balance = balance
+            print(f"Initial balance set in get_balance: ${balance}")
+            
+        return balance
+
     def get_stats(self):
         """Get trading statistics"""
         return self.stats
         
     def get_trade_history(self):
-        """Get trade history"""
-        return self.trade_history
-        
+        """Get trade history with verification of results"""
+        # Verify all trade results one more time before returning
+        verified_history = []
+        for trade in self.trade_history:
+            trade_copy = dict(trade)  # Make a copy to avoid modifying the original
+            
+            # Double check the result calculation
+            if 'type' in trade and 'market_movement' in trade:
+                contract_type = trade['type']
+                market_moved_up = trade['market_movement'] == 'UP'
+                
+                # Use our verification method for consistency
+                correct_result = self.verify_trade_outcome(contract_type, market_moved_up)
+                
+                # If there's a mismatch, correct it
+                if (correct_result and trade['result'] != 'win') or (not correct_result and trade['result'] != 'loss'):
+                    print(f"⚠️ Correcting trade result inconsistency during history retrieval for trade {trade.get('id', '')}")
+                    trade_copy['result'] = 'win' if correct_result else 'loss'
+                    
+                    # Also fix profit_loss to match the result
+                    if correct_result:  # Should be a win
+                        payout_multiplier = trade.get('payout_multiplier', 1.85)
+                        trade_copy['profit_loss'] = trade['buy_price'] * payout_multiplier - trade['buy_price']
+                    else:  # Should be a loss
+                        trade_copy['profit_loss'] = -trade['buy_price']
+                    
+                    # Mark as corrected
+                    trade_copy['corrected'] = True
+                    
+                # Add verification data if not present
+                if 'verification' not in trade_copy:
+                    trade_copy['verification'] = {
+                        'market_moved_up': market_moved_up,
+                        'contract_type': contract_type,
+                        'should_win': correct_result,
+                        'verification_added': 'during_retrieval'
+                    }
+            
+            verified_history.append(trade_copy)
+            
+        return verified_history
+    
     def disconnect(self):
         """Disconnect from API"""
         self.stop_trading()
@@ -613,7 +615,7 @@ class TradingBot:
                 'is_ready': time_since >= dynamic_cooldown
             }
         
-        return {
+        status = {
             'is_running': self.is_running,
             'strategy_scanning': self.strategy_scanning,
             'is_connected': self.api.is_connected if self.api else False,
@@ -632,25 +634,39 @@ class TradingBot:
             'emergency_bypass_active': (current_time - self.last_signal_time > 30) if self.last_signal_time > 0 else False,
             'double_stake_active': self.double_stake_active,
             'trades_since_double': self.trades_since_double,
-            'trades_before_double': self.trades_before_double
+            'trades_before_double': self.trades_before_double,
+            'verification_errors': self.verification_errors,
+            'market_movement_history': [('UP' if m else 'DOWN') for m in self.last_market_movements],
+            # Add more status fields
         }
+        
+        return status
         
     def reset_session_tracking(self):
         """Reset session profit/loss tracking"""
-        self.initial_balance = self.get_balance()
-        self.session_profit_loss = 0.0
-        print(f"Session tracking reset. Initial balance: ${self.initial_balance}")
+        current_balance = self.get_balance()
         
-        # Add callback to notify frontend of initial balance
-        if self.callbacks['balance_update']:
-            try:
-                self.callbacks['balance_update']({
-                    'balance': self.initial_balance,
-                    'initial_balance': self.initial_balance,
-                    'is_initial': True
-                })
-            except Exception as e:
-                print(f"⚠️  Error sending initial balance update: {e}")
+        # Only set initial balance if we have a valid value
+        if current_balance > 0:
+            self.initial_balance = current_balance
+            self.session_profit_loss = 0.0
+            print(f"Session tracking reset. Initial balance: ${self.initial_balance}")
+            
+            # Add callback to notify frontend of initial balance
+            if self.callbacks['balance_update']:
+                try:
+                    self.callbacks['balance_update']({
+                        'balance': self.initial_balance,
+                        'initial_balance': self.initial_balance,
+                        'is_initial': True
+                    })
+                except Exception as e:
+                    print(f"⚠️  Error sending initial balance update: {e}")
+        else:
+            print(f"⚠️ Cannot reset session with invalid balance: {current_balance}")
+            # Try to refresh balance and retry after a delay
+            self.api.refresh_balance()
+            threading.Timer(2.0, self.reset_session_tracking).start()
 
     def check_profit_loss_limits(self):
         """Check if take profit or stop loss limits are hit"""

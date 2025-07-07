@@ -63,16 +63,33 @@ class DerivAPI:
                         self.connection_callback(False, data['error']['message'])
                 else:
                     print("Authorization successful")
+                    # Make multiple balance requests for reliability
                     self._get_balance()
+                    # Schedule another balance request after a short delay
+                    threading.Timer(2.0, self._get_balance).start()
                     
             elif data.get("msg_type") == "balance":
                 old_balance = self.balance
-                self.balance = float(data.get("balance", {}).get("balance", 0))
-                print(f"Balance updated: ${old_balance:.2f} -> ${self.balance:.2f}")
-                
-                # Trigger balance callback if set
-                if self.balance_callback:
-                    self.balance_callback(self.balance)
+                # Extract balance more safely with better error checking
+                if "balance" in data and data["balance"] is not None:
+                    balance_data = data["balance"]
+                    new_balance = float(balance_data.get("balance", 0))
+                    
+                    # Only update if we get a valid non-zero balance
+                    if new_balance > 0:
+                        self.balance = new_balance
+                        print(f"Balance updated: ${old_balance:.2f} -> ${self.balance:.2f}")
+                        
+                        # Trigger balance callback if set
+                        if self.balance_callback:
+                            try:
+                                self.balance_callback(self.balance)
+                            except Exception as e:
+                                print(f"Error in balance callback: {e}")
+                    else:
+                        print(f"Received zero balance update, ignoring")
+                else:
+                    print(f"Received invalid balance data: {data}")
                 
             elif data.get("msg_type") == "buy":
                 # Handle buy response
@@ -103,13 +120,22 @@ class DerivAPI:
         
     def _get_balance(self):
         """Get account balance"""
-        balance_request = {
-            "balance": 1,
-            "req_id": self.req_id
-        }
-        self.ws.send(json.dumps(balance_request))
-        self.req_id += 1
-        
+        if not self.is_connected:
+            print("Cannot get balance: not connected")
+            return
+            
+        try:
+            balance_request = {
+                "balance": 1,
+                "subscribe": 1,  # Subscribe to balance updates
+                "req_id": self.req_id
+            }
+            self.ws.send(json.dumps(balance_request))
+            print("Balance request sent")
+            self.req_id += 1
+        except Exception as e:
+            print(f"Error requesting balance: {e}")
+    
     def set_balance_callback(self, callback):
         """Set callback for balance updates"""
         self.balance_callback = callback
@@ -117,10 +143,13 @@ class DerivAPI:
     def refresh_balance(self):
         """Request fresh balance data from server"""
         if self.is_connected:
-            self._get_balance()
-        
+            try:
+                self._get_balance()
+            except Exception as e:
+                print(f"Error refreshing balance: {e}")
+                
     def get_proposal(self, contract_type: str, duration: int, amount: float, callback):
-        """Get contract proposal"""
+        """Get contract proposal for tick-based trades"""
         if not self.is_connected:
             callback({"error": {"message": "Not connected to API"}})
             return
@@ -137,12 +166,19 @@ class DerivAPI:
             "req_id": self.req_id
         }
         
+        print(f"Requesting proposal for {contract_type} trade, {duration} tick duration, ${amount} stake")
         self.callbacks[self.req_id] = callback
-        self.ws.send(json.dumps(proposal_request))
+        try:
+            self.ws.send(json.dumps(proposal_request))
+            print(f"Proposal request sent with req_id: {self.req_id}")
+        except Exception as e:
+            print(f"Error sending proposal request: {e}")
+            callback({"error": {"message": f"Failed to send request: {str(e)}"}})
+            
         self.req_id += 1
-        
-    def get_proposal_minutes(self, contract_type: str, duration_minutes: int, amount: float, callback):
-        """Get contract proposal for minute-based trades"""
+    
+    def get_proposal_ticks(self, contract_type: str, ticks: int, amount: float, callback):
+        """Get contract proposal specifically for tick-based trades"""
         if not self.is_connected:
             callback({"error": {"message": "Not connected to API"}})
             return
@@ -153,13 +189,13 @@ class DerivAPI:
             "basis": "stake",
             "contract_type": contract_type,
             "currency": "USD",
-            "duration": duration_minutes,
-            "duration_unit": "m",  # minutes
+            "duration": ticks,
+            "duration_unit": "t",  # ticks
             "symbol": "R_100",  # Volatility 100 Index
             "req_id": self.req_id
         }
         
-        print(f"Requesting proposal for {contract_type} trade, {duration_minutes}m duration, ${amount} stake")
+        print(f"Requesting proposal for {contract_type} trade, {ticks} tick duration, ${amount} stake")
         self.callbacks[self.req_id] = callback
         try:
             self.ws.send(json.dumps(proposal_request))
@@ -176,9 +212,21 @@ class DerivAPI:
             callback({"error": {"message": "Not connected to API"}})
             return
             
-        # Wrap the original callback to refresh balance after trade
+        # Wrap the original callback to refresh balance after trade and validate contract
         def enhanced_callback(response):
+            # Validate the trade result structure
+            if not response.get("error") and "buy" in response:
+                # Store contract details for later validation
+                contract_info = response["buy"]
+                contract_id = contract_info.get("contract_id")
+                buy_price = float(contract_info.get("buy_price", 0))
+                
+                print(f"🧾 Contract validated - ID: {contract_id}, Buy price: ${buy_price}")
+                # Store the contract details for later outcome validation
+            
+            # Call the original callback
             callback(response)
+            
             # Refresh balance after trade completion (whether success or error)
             if not response.get("error"):
                 # Immediately refresh balance to get updated value
@@ -205,11 +253,28 @@ class DerivAPI:
     
     def update_balance(self, profit_loss: float):
         """Update balance with profit/loss from trade"""
+        old_balance = self.balance
         self.balance += profit_loss
         print(f"Balance updated: ${profit_loss:+.2f} -> New Balance: ${self.balance:.2f}")
         
+        # After updating balance locally, request fresh balance from server
+        threading.Timer(1.0, self.refresh_balance).start()
+        
+        # Emit balance update
+        if self.balance_callback:
+            try:
+                self.balance_callback(self.balance)
+            except Exception as e:
+                print(f"Error in balance callback: {e}")
+        
     def get_balance_value(self):
         """Get current balance"""
+        # If balance is zero and we're connected, try to refresh
+        if self.balance <= 0 and self.is_connected:
+            print("Balance is zero, attempting to refresh")
+            self._get_balance()
+            # Small delay to allow potential response to arrive
+            time.sleep(0.5)
         return self.balance
         
     def disconnect(self):

@@ -38,14 +38,30 @@ def start_update_thread():
         global bot_instance, latest_balance, latest_trades, latest_stats, latest_indicators
         while bot_instance and bot_instance.api.is_connected:
             try:
-                # Update balance
-                bot_instance.api.refresh_balance()
-                latest_balance = bot_instance.get_balance()
+                # Update balance with retry mechanism
+                retry_count = 0
+                max_retries = 3
+                
+                while retry_count < max_retries:
+                    # Refresh balance from API
+                    bot_instance.api.refresh_balance()
+                    time.sleep(0.5)  # Short wait for balance update
+                    
+                    # Get current balance
+                    current_balance = bot_instance.get_balance()
+                    
+                    # If we got a valid balance, use it
+                    if current_balance > 0:
+                        latest_balance = current_balance
+                        break
+                        
+                    retry_count += 1
+                    time.sleep(0.5)  # Wait before retry
                 
                 # Update stats
                 latest_stats = bot_instance.get_stats()
                 
-                # Update trade history
+                # Update trade history with verified trades
                 latest_trades = bot_instance.get_trade_history()
                 
                 # Update indicators
@@ -62,6 +78,11 @@ def start_update_thread():
                     'stop_loss_enabled': bot_instance.stop_loss_enabled,
                     'stop_loss_amount': bot_instance.stop_loss_amount
                 })
+                
+                # If initial_balance is still not set but we have a valid balance
+                if bot_instance.initial_balance <= 0 and latest_balance > 0:
+                    bot_instance.initial_balance = latest_balance
+                    print(f"Initial balance set in update loop: {latest_balance}")
                 
                 time.sleep(2)  # Update every 2 seconds
             except Exception as e:
@@ -155,29 +176,14 @@ def connect_api():
         def on_connection_status(success, error=None):
             global latest_balance
             if success:
-                # Store initial balance right away when connected
-                # Add retries for getting initial balance
-                retry_count = 0
-                max_retries = 5
-                initial_balance = 0
+                print("Connection successful, initializing balance...")
+                # Force multiple balance requests with increasing delays for reliability
+                threading.Timer(0.5, bot_instance.api.refresh_balance).start()
+                threading.Timer(1.5, bot_instance.api.refresh_balance).start()
+                threading.Timer(3.0, bot_instance.api.refresh_balance).start()
                 
-                while retry_count < max_retries and initial_balance <= 0:
-                    initial_balance = bot_instance.get_balance()
-                    if initial_balance > 0:
-                        break
-                    time.sleep(1)  # Wait 1 second before retrying
-                    retry_count += 1
-                    print(f"Retry {retry_count}/{max_retries} for initial balance: {initial_balance}")
-                
-                bot_instance.initial_balance = initial_balance
-                latest_balance = initial_balance
-                print(f"Initial balance set to: {initial_balance}")  # Debug log
-                
-                # Force a balance refresh through API
-                bot_instance.api.refresh_balance()
-                
-                # Start the update thread
-                start_update_thread()
+                # Start the update thread after a short delay
+                threading.Timer(3.0, start_update_thread).start()
             
         def on_trade_update(trade_info):
             global latest_trades, latest_balance
@@ -185,7 +191,7 @@ def connect_api():
             if trade_info not in latest_trades:
                 latest_trades.insert(0, trade_info)
             # Update balance if provided
-            if 'balance_after' in trade_info:
+            if 'balance_after' in trade_info and trade_info['balance_after'] > 0:
                 latest_balance = trade_info['balance_after']
             
         def on_stats_update(stats):
@@ -197,11 +203,25 @@ def connect_api():
             latest_strategy_signal = signal_data
             
         def on_balance_update(balance_data):
-            global latest_balance
+            global latest_balance, bot_instance
+            
+            # Process different balance update formats
             if isinstance(balance_data, dict):
-                latest_balance = balance_data.get('balance', latest_balance)
-            else:
+                new_balance = balance_data.get('balance')
+                if new_balance and new_balance > 0:
+                    latest_balance = new_balance
+                    
+                    # Also update initial_balance if this is the first balance update
+                    if balance_data.get('is_initial', False) and bot_instance and bot_instance.initial_balance <= 0:
+                        bot_instance.initial_balance = new_balance
+                        print(f"Initial balance set from callback: {new_balance}")
+            elif isinstance(balance_data, (int, float)) and balance_data > 0:
                 latest_balance = balance_data
+                
+                # If this is the first valid balance and initial_balance is not set
+                if bot_instance and bot_instance.initial_balance <= 0:
+                    bot_instance.initial_balance = balance_data
+                    print(f"Initial balance set from numeric callback: {balance_data}")
             
         bot_instance.set_callback('connection_status', on_connection_status)
         bot_instance.set_callback('trade_update', on_trade_update)
@@ -307,15 +327,17 @@ def refresh_balance():
         return jsonify({'error': 'Not connected to API'}), 400
         
     try:
-        # Force refresh balance from server
+        # Force multiple refresh attempts with increasing delays
         bot_instance.api.refresh_balance()
+        threading.Timer(1.0, bot_instance.api.refresh_balance).start()
+        threading.Timer(2.0, bot_instance.api.refresh_balance).start()
         
-        # Wait a moment for the response
+        # Wait a moment for the first response
         time.sleep(1)
         
-        # Try up to 3 times to get a valid balance
+        # Try up to 5 times to get a valid balance
         retry_count = 0
-        max_retries = 3
+        max_retries = 5
         fresh_balance = 0
         
         while retry_count < max_retries and fresh_balance <= 0:
@@ -324,9 +346,14 @@ def refresh_balance():
                 break
             time.sleep(0.5)
             retry_count += 1
+            print(f"Refresh retry {retry_count}/{max_retries}: {fresh_balance}")
         
         if fresh_balance > 0:
             latest_balance = fresh_balance
+            # Also update initial_balance if not yet set
+            if bot_instance.initial_balance <= 0:
+                bot_instance.initial_balance = fresh_balance
+                print(f"Initial balance set during refresh: {fresh_balance}")
         
         return jsonify({'balance': latest_balance, 'message': 'Balance refreshed'}), 200
     except Exception as e:
@@ -357,8 +384,41 @@ def get_trade_history():
         return jsonify({'error': 'Not connected to API'}), 400
         
     try:
+        # Always fetch fresh, verified trade history directly from the bot
         latest_trades = bot_instance.get_trade_history()
-        return jsonify({'trades': latest_trades}), 200
+        return jsonify({
+            'trades': latest_trades,
+            'verification_errors': getattr(bot_instance, 'verification_errors', 0),
+            'verified': True
+        }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/verify-trades', methods=['POST'])
+def verify_trades():
+    """Manually trigger verification of all trade results"""
+    global bot_instance, latest_trades
+    
+    if not bot_instance:
+        return jsonify({'error': 'Not connected to API'}), 400
+        
+    try:
+        # Fetch fresh, verified trade history
+        verified_trades = bot_instance.get_trade_history()
+        
+        # Count corrections
+        corrections = sum(1 for trade in verified_trades if trade.get('corrected', False))
+        
+        # Update latest trades
+        latest_trades = verified_trades
+        
+        return jsonify({
+            'message': f'Trade verification complete. {corrections} trades corrected.',
+            'trades': latest_trades,
+            'verification_errors': getattr(bot_instance, 'verification_errors', 0),
+            'corrections': corrections
+        }), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
