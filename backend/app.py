@@ -829,7 +829,46 @@ def reset_risk_management():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-# ... existing code ...
+
+@app.route('/api/trade-verification', methods=['GET'])
+def get_trade_verification():
+    """Get trade verification showing real vs simulated results"""
+    global bot_instance, latest_trades
+    
+    if not bot_instance:
+        return jsonify({'error': 'Not connected to API'}), 400
+        
+    try:
+        # Get verified trades with outcome source information
+        verified_trades = bot_instance.get_trade_history()
+        
+        # Categorize trades by outcome source
+        real_outcomes = [t for t in verified_trades if t.get('outcome_source') == 'deriv_api']
+        fallback_outcomes = [t for t in verified_trades if t.get('outcome_source') == 'fallback_simulation']
+        
+        # Calculate accuracy metrics
+        total_trades = len(verified_trades)
+        real_count = len(real_outcomes)
+        fallback_count = len(fallback_outcomes)
+        
+        return jsonify({
+            'total_trades': total_trades,
+            'real_outcomes': real_count,
+            'fallback_outcomes': fallback_count,
+            'real_percentage': (real_count / max(1, total_trades)) * 100,
+            'trades_by_source': {
+                'deriv_api': real_outcomes[-10:],  # Last 10 real outcomes
+                'fallback_simulation': fallback_outcomes[-10:]  # Last 10 fallback outcomes
+            },
+            'verification_summary': {
+                'using_real_deriv_outcomes': real_count > 0,
+                'fallback_rate': (fallback_count / max(1, total_trades)) * 100,
+                'outcome_sources_available': ['deriv_api', 'fallback_simulation']
+            }
+        }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     # Register cleanup handler
     import atexit

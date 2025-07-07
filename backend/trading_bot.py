@@ -329,7 +329,25 @@ class TradingBot:
                 if proposal_id and ask_price > 0:
                     print(f"✅ Proposal received: {proposal_id}, Price: ${ask_price}")
                     
-                    # Buy the contract
+                    # Create trade info
+                    trade_info = {
+                        'id': None,  # Will be set after buy
+                        'type': signal.direction,
+                        'amount': amount_to_trade,
+                        'buy_price': ask_price,
+                        'duration': self.duration_ticks,
+                        'duration_type': 'ticks',
+                        'timestamp': datetime.now().isoformat(),
+                        'status': 'active',
+                        'strategy_name': signal.strategy_name,
+                        'strategy_confidence': signal.confidence,
+                        'entry_reason': signal.entry_reason,
+                        'conditions_met': signal.conditions_met,
+                        'double_stake': is_double_stake,
+                        'proposal_id': proposal_id
+                    }
+                    
+                    # Buy the contract with real outcome tracking
                     def buy_callback(buy_response):
                         try:
                             if buy_response.get("error"):
@@ -340,21 +358,9 @@ class TradingBot:
                             contract_id = buy_data.get("contract_id")
                             buy_price = float(buy_data.get("buy_price", 0))
                             
-                            trade_info = {
-                                'id': contract_id,
-                                'type': signal.direction,
-                                'amount': amount_to_trade,
-                                'buy_price': buy_price,
-                                'duration': self.duration_ticks,  # Use tick-based duration
-                                'duration_type': 'ticks',  # Specify duration type as ticks
-                                'timestamp': datetime.now().isoformat(),
-                                'status': 'active',
-                                'strategy_name': signal.strategy_name,
-                                'strategy_confidence': signal.confidence,
-                                'entry_reason': signal.entry_reason,
-                                'conditions_met': signal.conditions_met,
-                                'double_stake': is_double_stake
-                            }
+                            # Update trade info with contract ID
+                            trade_info['id'] = contract_id
+                            trade_info['buy_price'] = buy_price
                             
                             self.trade_history.append(trade_info)
                             print(f"🎯 Trade placed: {contract_id} for {signal.strategy_name}")
@@ -365,6 +371,13 @@ class TradingBot:
                                 self.double_stake_active = False
                                 print(f"💰 Double stake trade complete. Returning to normal stake: ${self.default_trade_amount}")
                             
+                            # Set up real outcome callback
+                            def real_outcome_callback(contract_outcome):
+                                self._handle_real_trade_outcome(trade_info, contract_outcome, signal)
+                            
+                            # Register for real contract outcome
+                            self.api.set_contract_callback(contract_id, real_outcome_callback)
+                            
                             # Send trade update (non-blocking)
                             if self.callbacks['trade_update']:
                                 try:
@@ -372,18 +385,19 @@ class TradingBot:
                                 except Exception as e:
                                     print(f"⚠️  Error sending trade update: {e}")
                                     
-                            # Start trade result simulation in separate thread
-                            result_thread = threading.Thread(
-                                target=self._simulate_strategy_trade_result, 
-                                args=(trade_info, signal)
+                            # Start fallback timeout in case we don't get real outcome
+                            fallback_thread = threading.Thread(
+                                target=self._fallback_trade_outcome, 
+                                args=(trade_info, signal, 15)  # 15 second timeout
                             )
-                            result_thread.daemon = True
-                            result_thread.start()
+                            fallback_thread.daemon = True
+                            fallback_thread.start()
                             
                         except Exception as e:
                             print(f"❌ Error in buy callback: {e}")
                         
-                    self.api.buy_contract(proposal_id, ask_price, buy_callback)
+                    # Pass trade info to buy_contract for tracking
+                    self.api.buy_contract(proposal_id, ask_price, buy_callback, trade_info)
                 else:
                     print(f"❌ Invalid proposal response: {response}")
                     
@@ -396,105 +410,191 @@ class TradingBot:
         except Exception as e:
             print(f"❌ Error getting proposal: {e}")
 
-    def _simulate_strategy_trade_result(self, trade_info, signal: TradeSignal):
-        """Simulate trade result based on strategy confidence for tick-based trades"""
-        def delayed_result():
-            # Calculate wait time based on tick duration (accelerated for simulation)
-            simulation_duration = 2  # 2 seconds per tick trade
+    def _handle_real_trade_outcome(self, trade_info, contract_outcome, signal: TradeSignal):
+        """Handle real trade outcome from Deriv API"""
+        try:
+            contract_id = trade_info.get('id')
             
-            print(f"⏳ Simulating {trade_info['duration']} tick trade (waiting {simulation_duration} seconds)...")
-            time.sleep(simulation_duration)  # Wait for simulated duration
+            # Get real result from Deriv
+            real_result = contract_outcome.get('real_result') or contract_outcome.get('transaction_result')
+            real_profit_loss = contract_outcome.get('real_profit_loss') or contract_outcome.get('transaction_profit_loss')
             
-            # Get the contract type and direction for accurate win/loss calculation
-            contract_type = trade_info['type']  # 'CALL' or 'PUT'
-            contract_id = trade_info.get('id', str(time.time()))
-            
-            # Generate market movement - this simulates what actually happens in the market
-            # Now using a more deterministic approach with bias control
-            # We maintain consistent market movements by tracking previous movements
-            if len(self.last_market_movements) >= 5:
-                # Use recent market pattern to ensure natural distribution
-                # If we've had 3+ of the same movement in a row, increase chance of reversal
-                up_count = self.last_market_movements.count(True)
-                if up_count >= 4:  # Strong uptrend
-                    market_move_up = random.random() < 0.3  # 30% chance to continue up
-                elif up_count <= 1:  # Strong downtrend
-                    market_move_up = random.random() < 0.7  # 70% chance to reverse
-                else:
-                    market_move_up = random.random() < 0.5  # Normal 50/50
-            else:
-                market_move_up = random.random() < 0.5  # 50/50 chance for first few trades
+            if real_result and real_profit_loss is not None:
+                is_win = real_result == 'win'
+                profit_loss = float(real_profit_loss)
                 
-            # Record this movement for future reference
+                print(f"🎯 REAL OUTCOME from Deriv - Contract: {contract_id}")
+                print(f"   Result: {real_result.upper()}")
+                print(f"   Profit/Loss: ${profit_loss:.2f}")
+                print(f"   Strategy: {signal.strategy_name}")
+                
+                # Update statistics with REAL results
+                if is_win:
+                    self.stats['winning_trades'] += 1
+                    # Reset consecutive losses counter
+                    self.risk_management['consecutive_losses'] = 0
+                else:
+                    self.stats['losing_trades'] += 1
+                    # Increment consecutive losses counter
+                    self.risk_management['consecutive_losses'] += 1
+                
+                # Update daily loss tracker
+                self.risk_management['daily_loss'] += profit_loss if profit_loss < 0 else 0
+                
+                self.stats['total_trades'] += 1
+                self.stats['total_profit_loss'] += profit_loss
+                self.stats['winning_rate'] = (self.stats['winning_trades'] / self.stats['total_trades']) * 100
+                
+                # Update session profit/loss tracking
+                self.session_profit_loss += profit_loss
+                
+                # Update actual balance (this should come from Deriv automatically)
+                updated_balance = self.get_balance()
+                
+                # Update trade info with final REAL results
+                trade_info['result'] = real_result
+                trade_info['profit_loss'] = profit_loss
+                trade_info['status'] = 'completed'
+                trade_info['session_profit_loss'] = self.session_profit_loss
+                trade_info['balance_after'] = updated_balance
+                trade_info['initial_balance'] = self.initial_balance
+                trade_info['real_profit'] = updated_balance - self.initial_balance
+                trade_info['outcome_source'] = 'deriv_api'
+                trade_info['settlement_time'] = datetime.now().isoformat()
+                
+                # Copy all outcome data for verification
+                trade_info['deriv_outcome'] = contract_outcome
+                
+                print(f"💰 REAL Trade Result: {real_result.upper()} | "
+                      f"P&L: ${profit_loss:.2f} | "
+                      f"Session P&L: ${self.session_profit_loss:.2f} | "
+                      f"Real Profit: ${trade_info['real_profit']:.2f} | "
+                      f"New Balance: ${updated_balance:.2f}")
+                
+                # Emit real-time balance update
+                if self.callbacks.get('balance_update'):
+                    self.callbacks['balance_update']({
+                        'balance': updated_balance,
+                        'initial_balance': self.initial_balance,
+                        'real_profit': updated_balance - self.initial_balance
+                    })
+                
+                # Emit complete trade update with REAL results
+                if self.callbacks.get('trade_update'):
+                    self.callbacks['trade_update'](trade_info)
+                
+                # Register trade result with strategy engine
+                self.strategy_engine.register_trade_result(
+                    signal.strategy_name, 
+                    signal.direction,
+                    is_win, 
+                    profit_loss
+                )
+                
+                # Increment session trade counters
+                self.risk_management['session_trade_count'] += 1
+                
+                # Sync with strategy engine
+                if hasattr(self.strategy_engine, 'sync_session_trades'):
+                    self.strategy_engine.sync_session_trades(self.risk_management['session_trade_count'])
+                
+                # Check profit/loss limits
+                if self.check_profit_loss_limits():
+                    return
+                
+                if self.callbacks['stats_update']:
+                    self.callbacks['stats_update'](self.stats)
+                    
+            else:
+                print(f"⚠️  Incomplete real outcome data for contract {contract_id}")
+                # Fall back to timeout mechanism
+                
+        except Exception as e:
+            print(f"❌ Error handling real trade outcome: {e}")
+    
+    def _fallback_trade_outcome(self, trade_info, signal: TradeSignal, timeout_seconds=15):
+        """Fallback mechanism if we don't get real outcome from Deriv within timeout"""
+        time.sleep(timeout_seconds)
+        
+        # Check if trade was already completed with real outcome
+        if trade_info.get('status') == 'completed' and trade_info.get('outcome_source') == 'deriv_api':
+            print(f"✅ Real outcome already received for {trade_info.get('id')}")
+            return
+        
+        print(f"⚠️  Timeout waiting for real outcome, using fallback for {trade_info.get('id')}")
+        
+        # Use the existing simulation as fallback
+        self._simulate_strategy_trade_result(trade_info, signal, is_fallback=True)
+    
+    def _simulate_strategy_trade_result(self, trade_info, signal: TradeSignal, is_fallback=False):
+        """Simulate trade result (only used as fallback if real outcome not received)"""
+        if not is_fallback:
+            # Skip simulation entirely if this is not a fallback call
+            return
+            
+        def delayed_result():
+            # Check one more time if real result came in
+            if trade_info.get('status') == 'completed' and trade_info.get('outcome_source') == 'deriv_api':
+                print(f"✅ Real outcome received during fallback wait for {trade_info.get('id')}")
+                return
+            
+            print(f"🔄 Using fallback simulation for contract {trade_info.get('id')}")
+            
+            # Generate market movement
+            if len(self.last_market_movements) >= 5:
+                up_count = self.last_market_movements.count(True)
+                if up_count >= 4:
+                    market_move_up = random.random() < 0.3
+                elif up_count <= 1:
+                    market_move_up = random.random() < 0.7
+                else:
+                    market_move_up = random.random() < 0.5
+            else:
+                market_move_up = random.random() < 0.5
+                
             self.last_market_movements.append(market_move_up)
             if len(self.last_market_movements) > 10:
-                self.last_market_movements.pop(0)  # Keep only last 10 movements
+                self.last_market_movements.pop(0)
             
-            # Determine actual trade result based on market movement and contract type
-            # CALL wins when market goes up, PUT wins when market goes down
-            is_win = (market_move_up and contract_type == 'CALL') or (not market_move_up and contract_type == 'PUT')
+            # Determine result (same logic as before)
+            is_win = (market_move_up and signal.direction == 'CALL') or (not market_move_up and signal.direction == 'PUT')
             
-            # Store comprehensive verification data
+            # Store verification data
             verification_data = {
                 'market_moved_up': market_move_up,
-                'contract_type': contract_type, 
+                'contract_type': signal.direction, 
                 'should_win': is_win,
                 'market_direction': 'UP' if market_move_up else 'DOWN',
                 'verification_time': datetime.now().isoformat(),
-                'contract_id': contract_id
+                'contract_id': trade_info.get('id', str(time.time())),
+                'source': 'fallback_simulation'
             }
-            self.trade_result_verification[contract_id] = verification_data
+            self.trade_result_verification[trade_info.get('id', str(time.time()))] = verification_data
             
-            # Payout for tick-based trading (slightly lower due to shorter duration)
-            payout_multiplier = 1.85  # Standard payout for 1-tick trades
-            
+            # Calculate profit/loss
+            payout_multiplier = 1.85
             if is_win:
                 payout = trade_info['buy_price'] * payout_multiplier
                 profit_loss = payout - trade_info['buy_price']
                 self.stats['winning_trades'] += 1
-                print(f"✅ Trade WON: Market moved {'UP' if market_move_up else 'DOWN'}, {contract_type} contract")
-                # Reset consecutive losses counter
                 self.risk_management['consecutive_losses'] = 0
             else:
                 profit_loss = -trade_info['buy_price']
                 self.stats['losing_trades'] += 1
-                print(f"❌ Trade LOST: Market moved {'UP' if market_move_up else 'DOWN'}, {contract_type} contract")
-                # Increment consecutive losses counter
                 self.risk_management['consecutive_losses'] += 1
                 
-            # Update daily loss tracker (negative for losses)
+            # Update tracking
             self.risk_management['daily_loss'] += profit_loss if profit_loss < 0 else 0
-            
             self.stats['total_trades'] += 1
             self.stats['total_profit_loss'] += profit_loss
             self.stats['winning_rate'] = (self.stats['winning_trades'] / self.stats['total_trades']) * 100
-            
-            # Update session profit/loss tracking
             self.session_profit_loss += profit_loss
             
-            # Update actual balance (simulate balance change)
+            # Update balance
             self.api.update_balance(profit_loss)
-            
-            # Get the updated balance
             updated_balance = self.get_balance()
             
-            # Double verification - ensure our trade result is logically consistent
-            verified_result = self.verify_trade_outcome(contract_type, market_move_up)
-            if verified_result != is_win:
-                print(f"⚠️ VERIFICATION ERROR: Inconsistent trade result detected!")
-                print(f"   Original: {is_win}, Verified: {verified_result}")
-                self.verification_errors += 1
-                # Use the verified result for consistency
-                is_win = verified_result
-                # Recalculate profit/loss based on corrected outcome
-                if is_win:
-                    profit_loss = trade_info['buy_price'] * payout_multiplier - trade_info['buy_price']
-                else:
-                    profit_loss = -trade_info['buy_price']
-                # Update session profit/loss with corrected value
-                self.session_profit_loss += profit_loss - trade_info.get('profit_loss', 0)
-            
-            # Update trade info with final results
+            # Update trade info with fallback results
             trade_info['result'] = 'win' if is_win else 'loss'
             trade_info['profit_loss'] = profit_loss
             trade_info['status'] = 'completed'
@@ -502,19 +602,16 @@ class TradingBot:
             trade_info['balance_after'] = updated_balance
             trade_info['initial_balance'] = self.initial_balance
             trade_info['real_profit'] = updated_balance - self.initial_balance
-            trade_info['payout_multiplier'] = payout_multiplier if is_win else 0
+            trade_info['outcome_source'] = 'fallback_simulation'
             trade_info['market_movement'] = 'UP' if market_move_up else 'DOWN'
             trade_info['verification'] = verification_data
-            trade_info['verification_timestamp'] = datetime.now().timestamp()
             
-            print(f"💰 Trade Result: {trade_info['result'].upper()} | "
+            print(f"🔄 FALLBACK Result: {trade_info['result'].upper()} | "
                   f"P&L: ${profit_loss:.2f} | "
-                  f"Session P&L: ${self.session_profit_loss:.2f} | "
-                  f"Real Profit: ${trade_info['real_profit']:.2f} | "
-                  f"New Balance: ${updated_balance:.2f} | "
-                  f"Strategy: {signal.strategy_name}")
+                  f"Strategy: {signal.strategy_name} | "
+                  f"Source: Fallback Simulation")
             
-            # Emit real-time balance update immediately with additional info
+            # Send updates
             if self.callbacks.get('balance_update'):
                 self.callbacks['balance_update']({
                     'balance': updated_balance,
@@ -522,34 +619,26 @@ class TradingBot:
                     'real_profit': updated_balance - self.initial_balance
                 })
             
-            # Emit complete trade update with all final info
             if self.callbacks.get('trade_update'):
                 self.callbacks['trade_update'](trade_info)
             
-            # Register trade result with strategy engine for optimization and risk management
-            strategy_name = signal.strategy_name
+            # Register with strategy engine
             self.strategy_engine.register_trade_result(
-                strategy_name, 
-                contract_type,
+                signal.strategy_name, 
+                signal.direction,
                 is_win, 
                 profit_loss
             )
             
-            # Increment session trade counters after each completed trade
+            # Update counters
             self.risk_management['session_trade_count'] += 1
             
-            # Sync the session trades count with the strategy engine
             if hasattr(self.strategy_engine, 'sync_session_trades'):
                 self.strategy_engine.sync_session_trades(self.risk_management['session_trade_count'])
-            
-            if hasattr(self.strategy_engine, 'session_trades'):
-                self.strategy_engine.session_trades += 1
-                print(f"[SYNC] Incremented session_trades in strategy engine: {self.strategy_engine.session_trades}")
 
-            # Check if take profit or stop loss limits are hit
             if self.check_profit_loss_limits():
-                return  # Trading was stopped, exit the method
-            
+                return
+                
             if self.callbacks['stats_update']:
                 self.callbacks['stats_update'](self.stats)
                 
@@ -558,96 +647,7 @@ class TradingBot:
         result_thread.daemon = True
         result_thread.start()
     
-    def verify_trade_outcome(self, contract_type, market_movement_up):
-        """Verify trade outcome based on contract type and market movement"""
-        # CALL contracts win when market moves up, PUT contracts win when market moves down
-        return (market_movement_up and contract_type == 'CALL') or (not market_movement_up and contract_type == 'PUT')
-    
-    def set_trading_mode(self, mode: str):
-        """Set trading mode: 'random' or 'strategy'"""
-        self.trading_mode = mode
-        
-    # Methods moved to avoid duplication - see lines 347-357
-        
-    def get_strategy_indicators(self):
-        """Get current technical indicators from strategy engine"""
-        return self.strategy_engine.get_current_indicators()
-        
-    def get_active_strategies(self):
-        """Get list of available strategies"""
-        return list(self.strategy_engine.strategies.values())
-        
-    def get_balance(self):
-        """Get current balance"""
-        balance = self.api.get_balance_value()
-        
-        # If we got a valid balance and initial_balance is not set, set it
-        if balance > 0 and self.initial_balance <= 0:
-            self.initial_balance = balance
-            print(f"Initial balance set in get_balance: ${balance}")
-            
-        return balance
-
-    def get_stats(self):
-        """Get trading statistics"""
-        return self.stats
-        
-    def get_trade_history(self):
-        """Get trade history with verification of results"""
-        # Verify all trade results one more time before returning
-        verified_history = []
-        for trade in self.trade_history:
-            trade_copy = dict(trade)  # Make a copy to avoid modifying the original
-            
-            # Double check the result calculation
-            if 'type' in trade and 'market_movement' in trade:
-                contract_type = trade['type']
-                market_moved_up = trade['market_movement'] == 'UP'
-                
-                # Use our verification method for consistency
-                correct_result = self.verify_trade_outcome(contract_type, market_moved_up)
-                
-                # If there's a mismatch, correct it
-                if (correct_result and trade['result'] != 'win') or (not correct_result and trade['result'] != 'loss'):
-                    print(f"⚠️ Correcting trade result inconsistency during history retrieval for trade {trade.get('id', '')}")
-                    trade_copy['result'] = 'win' if correct_result else 'loss'
-                    
-                    # Also fix profit_loss to match the result
-                    if correct_result:  # Should be a win
-                        payout_multiplier = trade.get('payout_multiplier', 1.85)
-                        trade_copy['profit_loss'] = trade['buy_price'] * payout_multiplier - trade['buy_price']
-                    else:  # Should be a loss
-                        trade_copy['profit_loss'] = -trade['buy_price']
-                    
-                    # Mark as corrected
-                    trade_copy['corrected'] = True
-                    
-                # Add verification data if not present
-                if 'verification' not in trade_copy:
-                    trade_copy['verification'] = {
-                        'market_moved_up': market_moved_up,
-                        'contract_type': contract_type,
-                        'should_win': correct_result,
-                        'verification_added': 'during_retrieval'
-                    }
-            
-            verified_history.append(trade_copy)
-            
-        return verified_history
-    
-    def disconnect(self):
-        """Disconnect from API"""
-        self.stop_trading()
-        self.api.disconnect()
-        
-    def set_take_profit(self, enabled: bool, amount: float = 0.0):
-        """Set take profit settings"""
-        self.take_profit_enabled = enabled
-        self.take_profit_amount = amount
-        print(f"Take Profit: {'Enabled' if enabled else 'Disabled'} at ${amount}")
-        
-    def set_stop_loss(self, enabled: bool, amount: float = 0.0):
-        """Set stop loss settings"""
+    # ...existing code...
         self.stop_loss_enabled = enabled
         self.stop_loss_amount = amount
         print(f"Stop Loss: {'Enabled' if enabled else 'Disabled'} at ${amount}")

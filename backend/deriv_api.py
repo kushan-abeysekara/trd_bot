@@ -17,6 +17,8 @@ class DerivAPI:
         self.callbacks = {}
         self.connection_callback = None
         self.balance_callback = None  # Callback for balance updates
+        self.active_contracts = {}  # Track active contracts for outcome monitoring
+        self.contract_callbacks = {}  # Callbacks for contract outcomes
         
     def connect(self, callback=None):
         """Connect to Deriv WebSocket API"""
@@ -55,8 +57,9 @@ class DerivAPI:
         """Handle incoming WebSocket messages"""
         try:
             data = json.loads(message)
+            msg_type = data.get("msg_type")
             
-            if data.get("msg_type") == "authorize":
+            if msg_type == "authorize":
                 if data.get("error"):
                     print(f"Authorization failed: {data['error']['message']}")
                     if self.connection_callback:
@@ -68,7 +71,7 @@ class DerivAPI:
                     # Schedule another balance request after a short delay
                     threading.Timer(2.0, self._get_balance).start()
                     
-            elif data.get("msg_type") == "balance":
+            elif msg_type == "balance":
                 old_balance = self.balance
                 # Extract balance more safely with better error checking
                 if "balance" in data and data["balance"] is not None:
@@ -91,22 +94,117 @@ class DerivAPI:
                 else:
                     print(f"Received invalid balance data: {data}")
                 
-            elif data.get("msg_type") == "buy":
+            elif msg_type == "buy":
                 # Handle buy response
                 req_id = data.get("req_id")
                 if req_id in self.callbacks:
                     self.callbacks[req_id](data)
                     del self.callbacks[req_id]
                     
-            elif data.get("msg_type") == "proposal":
+            elif msg_type == "proposal":
                 # Handle proposal response
                 req_id = data.get("req_id")
                 if req_id in self.callbacks:
                     self.callbacks[req_id](data)
                     del self.callbacks[req_id]
                     
+            elif msg_type == "proposal_open_contract":
+                # Handle contract updates (REAL CONTRACT OUTCOMES)
+                self._handle_contract_update(data)
+                
+            elif msg_type == "transaction":
+                # Handle transaction updates (includes contract settlements)
+                self._handle_transaction_update(data)
+                
         except json.JSONDecodeError:
             print(f"Failed to parse message: {message}")
+    
+    def _handle_contract_update(self, data):
+        """Handle real contract outcome updates from Deriv"""
+        try:
+            contract_data = data.get("proposal_open_contract", {})
+            contract_id = contract_data.get("contract_id")
+            contract_status = contract_data.get("status")
+            
+            if contract_id and contract_id in self.active_contracts:
+                contract_info = self.active_contracts[contract_id]
+                
+                # Check if contract is settled
+                if contract_status in ["sold", "won", "lost"]:
+                    # Get actual profit/loss
+                    profit = float(contract_data.get("profit", 0))
+                    payout = float(contract_data.get("payout", 0))
+                    buy_price = float(contract_data.get("buy_price", 0))
+                    
+                    # Determine actual result
+                    is_win = profit > 0
+                    actual_profit_loss = profit
+                    
+                    print(f"🎯 REAL CONTRACT OUTCOME - ID: {contract_id}")
+                    print(f"   Status: {contract_status}")
+                    print(f"   Result: {'WIN' if is_win else 'LOSS'}")
+                    print(f"   Buy Price: ${buy_price:.2f}")
+                    print(f"   Payout: ${payout:.2f}")
+                    print(f"   Profit/Loss: ${actual_profit_loss:.2f}")
+                    
+                    # Update contract info with real result
+                    contract_info.update({
+                        'real_result': 'win' if is_win else 'loss',
+                        'real_profit_loss': actual_profit_loss,
+                        'real_payout': payout,
+                        'settlement_time': datetime.now().isoformat(),
+                        'deriv_status': contract_status
+                    })
+                    
+                    # Call contract callback if set
+                    if contract_id in self.contract_callbacks:
+                        try:
+                            self.contract_callbacks[contract_id](contract_info)
+                            del self.contract_callbacks[contract_id]
+                        except Exception as e:
+                            print(f"Error in contract callback: {e}")
+                    
+                    # Remove from active contracts
+                    del self.active_contracts[contract_id]
+                    
+        except Exception as e:
+            print(f"Error handling contract update: {e}")
+    
+    def _handle_transaction_update(self, data):
+        """Handle transaction updates including contract settlements"""
+        try:
+            transaction = data.get("transaction", {})
+            action = transaction.get("action")
+            contract_id = transaction.get("contract_id")
+            
+            if action == "sell" and contract_id:
+                # Contract was settled
+                amount = float(transaction.get("amount", 0))
+                
+                if contract_id in self.active_contracts:
+                    contract_info = self.active_contracts[contract_id]
+                    buy_price = contract_info.get('buy_price', 0)
+                    
+                    # Calculate actual profit/loss
+                    actual_profit_loss = amount - buy_price
+                    is_win = actual_profit_loss > 0
+                    
+                    print(f"💰 TRANSACTION SETTLEMENT - Contract: {contract_id}")
+                    print(f"   Settlement Amount: ${amount:.2f}")
+                    print(f"   Original Stake: ${buy_price:.2f}")
+                    print(f"   Actual P&L: ${actual_profit_loss:.2f}")
+                    print(f"   Result: {'WIN' if is_win else 'LOSS'}")
+                    
+                    # Update with transaction data
+                    contract_info.update({
+                        'transaction_result': 'win' if is_win else 'loss',
+                        'transaction_profit_loss': actual_profit_loss,
+                        'settlement_amount': amount,
+                        'transaction_time': datetime.now().isoformat()
+                    })
+                    
+        except Exception as e:
+            print(f"Error handling transaction update: {e}")
             
     def _on_error(self, ws, error):
         """Handle WebSocket errors"""
@@ -148,35 +246,6 @@ class DerivAPI:
             except Exception as e:
                 print(f"Error refreshing balance: {e}")
                 
-    def get_proposal(self, contract_type: str, duration: int, amount: float, callback):
-        """Get contract proposal for tick-based trades"""
-        if not self.is_connected:
-            callback({"error": {"message": "Not connected to API"}})
-            return
-            
-        proposal_request = {
-            "proposal": 1,
-            "amount": amount,
-            "basis": "stake",
-            "contract_type": contract_type,
-            "currency": "USD",
-            "duration": duration,
-            "duration_unit": "t",  # ticks
-            "symbol": "R_100",  # Volatility 100 Index
-            "req_id": self.req_id
-        }
-        
-        print(f"Requesting proposal for {contract_type} trade, {duration} tick duration, ${amount} stake")
-        self.callbacks[self.req_id] = callback
-        try:
-            self.ws.send(json.dumps(proposal_request))
-            print(f"Proposal request sent with req_id: {self.req_id}")
-        except Exception as e:
-            print(f"Error sending proposal request: {e}")
-            callback({"error": {"message": f"Failed to send request: {str(e)}"}})
-            
-        self.req_id += 1
-    
     def get_proposal_ticks(self, contract_type: str, ticks: int, amount: float, callback):
         """Get contract proposal specifically for tick-based trades"""
         if not self.is_connected:
@@ -206,23 +275,35 @@ class DerivAPI:
             
         self.req_id += 1
     
-    def buy_contract(self, proposal_id: str, price: float, callback):
-        """Buy a contract"""
+    def buy_contract(self, proposal_id: str, price: float, callback, contract_info=None):
+        """Buy a contract and track it for real outcome monitoring"""
         if not self.is_connected:
             callback({"error": {"message": "Not connected to API"}})
             return
-            
-        # Wrap the original callback to refresh balance after trade and validate contract
+        
+        # Wrap the original callback to track contracts and refresh balance
         def enhanced_callback(response):
             # Validate the trade result structure
             if not response.get("error") and "buy" in response:
-                # Store contract details for later validation
-                contract_info = response["buy"]
-                contract_id = contract_info.get("contract_id")
-                buy_price = float(contract_info.get("buy_price", 0))
+                # Store contract details for real outcome tracking
+                buy_data = response["buy"]
+                contract_id = buy_data.get("contract_id")
+                buy_price = float(buy_data.get("buy_price", 0))
                 
-                print(f"🧾 Contract validated - ID: {contract_id}, Buy price: ${buy_price}")
-                # Store the contract details for later outcome validation
+                if contract_id:
+                    # Store contract info for outcome tracking
+                    self.active_contracts[contract_id] = {
+                        'contract_id': contract_id,
+                        'buy_price': buy_price,
+                        'proposal_id': proposal_id,
+                        'buy_time': datetime.now().isoformat(),
+                        'contract_info': contract_info or {}
+                    }
+                    
+                    # Subscribe to contract updates
+                    self._subscribe_to_contract(contract_id)
+                    
+                    print(f"🧾 Contract tracked for real outcome - ID: {contract_id}, Buy price: ${buy_price}")
             
             # Call the original callback
             callback(response)
@@ -251,22 +332,34 @@ class DerivAPI:
             
         self.req_id += 1
     
-    def update_balance(self, profit_loss: float):
-        """Update balance with profit/loss from trade"""
-        old_balance = self.balance
-        self.balance += profit_loss
-        print(f"Balance updated: ${profit_loss:+.2f} -> New Balance: ${self.balance:.2f}")
-        
-        # After updating balance locally, request fresh balance from server
-        threading.Timer(1.0, self.refresh_balance).start()
-        
-        # Emit balance update
-        if self.balance_callback:
-            try:
-                self.balance_callback(self.balance)
-            except Exception as e:
-                print(f"Error in balance callback: {e}")
-        
+    def _subscribe_to_contract(self, contract_id: str):
+        """Subscribe to contract updates for real outcome tracking"""
+        if not self.is_connected:
+            return
+            
+        try:
+            subscribe_request = {
+                "proposal_open_contract": 1,
+                "contract_id": contract_id,
+                "subscribe": 1,
+                "req_id": self.req_id
+            }
+            
+            self.ws.send(json.dumps(subscribe_request))
+            print(f"📡 Subscribed to contract updates: {contract_id}")
+            self.req_id += 1
+            
+        except Exception as e:
+            print(f"Error subscribing to contract: {e}")
+    
+    def set_contract_callback(self, contract_id: str, callback):
+        """Set callback for specific contract outcome"""
+        self.contract_callbacks[contract_id] = callback
+    
+    def get_active_contracts(self):
+        """Get list of active contracts being tracked"""
+        return list(self.active_contracts.keys())
+    
     def get_balance_value(self):
         """Get current balance"""
         # If balance is zero and we're connected, try to refresh
@@ -282,3 +375,5 @@ class DerivAPI:
         if self.ws:
             self.ws.close()
             self.is_connected = False
+            self.active_contracts.clear()
+            self.contract_callbacks.clear()

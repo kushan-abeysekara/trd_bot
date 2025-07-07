@@ -11,15 +11,15 @@ MIN_TRADE_AMOUNT = 0.35  # Minimum allowed trade amount in USD
 DEFAULT_DURATION_SECONDS = 3  # Changed for 1-tick trading (approx. 3 seconds)
 MIN_DURATION_SECONDS = 2
 MAX_DURATION_SECONDS = 5
-TRADE_INTERVAL_SECONDS = 1  # Reduced to 1 second for very frequent trades
+TRADE_INTERVAL_SECONDS = 3  # Reduced to 3 seconds for more manageable trades
 ONE_TRADE_AT_A_TIME = False  # Allow multiple trades for testing
 FORCE_STRATEGY_SIGNALS = True  # Force more aggressive signal generation
 AGGRESSIVE_SIGNAL_MODE = True  # Enable aggressive signal generation
 SIGNAL_CONFIDENCE_THRESHOLD = 0.50  # Lowered threshold for more signals
 
 # Risk Management Settings
-MAX_CONSECUTIVE_LOSSES = 2  # Stop trading after 2 consecutive losses
-MAX_SESSION_TRADES = 20  # Cap at 20 trades per session
+MAX_CONSECUTIVE_LOSSES = 6  # Stop trading after 2 consecutive losses
+MAX_SESSION_TRADES = 100  # Cap at 20 trades per session
 DEFAULT_RISK_REWARD_RATIO = 2.0  # Default 2:1 risk-reward ratio
 
 # Strategy Optimization Settings
