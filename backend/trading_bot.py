@@ -647,11 +647,59 @@ class TradingBot:
         result_thread.daemon = True
         result_thread.start()
     
-    # ...existing code...
+    def get_balance(self):
+        """Get current balance from API"""
+        if self.api and self.api.is_connected:
+            return self.api.get_balance_value()
+        return 0.0
+    
+    def get_stats(self):
+        """Get trading statistics"""
+        return self.stats.copy()
+    
+    def get_trade_history(self):
+        """Get trade history"""
+        return self.trade_history.copy()
+    
+    def get_active_strategies(self):
+        """Get list of active strategies"""
+        if hasattr(self, 'strategy_engine'):
+            return self.strategy_engine.get_strategy_list()
+        return []
+    
+    def get_strategy_indicators(self):
+        """Get current strategy indicators"""
+        if hasattr(self, 'strategy_engine'):
+            return self.strategy_engine.get_current_indicators()
+        return {}
+    
+    def set_trading_mode(self, mode: str):
+        """Set trading mode"""
+        if mode in ['random', 'strategy']:
+            self.trading_mode = mode
+            print(f"Trading mode set to: {mode}")
+        else:
+            raise ValueError("Invalid trading mode. Use 'random' or 'strategy'")
+    
+    def set_take_profit(self, enabled: bool, amount: float):
+        """Set take profit settings"""
+        self.take_profit_enabled = enabled
+        self.take_profit_amount = amount
+        print(f"Take Profit: {'Enabled' if enabled else 'Disabled'} at ${amount}")
+    
+    def set_stop_loss(self, enabled: bool, amount: float):
+        """Set stop loss settings"""
         self.stop_loss_enabled = enabled
         self.stop_loss_amount = amount
         print(f"Stop Loss: {'Enabled' if enabled else 'Disabled'} at ${amount}")
-        
+    
+    def disconnect(self):
+        """Disconnect from API"""
+        if self.is_running:
+            self.stop_trading()
+        if self.api:
+            self.api.disconnect()
+
     def _check_risk_limits(self):
         """Check if any risk management limits have been hit"""
         current_time = time.time()

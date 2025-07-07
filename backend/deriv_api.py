@@ -361,14 +361,14 @@ class DerivAPI:
         return list(self.active_contracts.keys())
     
     def get_balance_value(self):
-        """Get current balance"""
+        """Get current balance value with validation"""
         # If balance is zero and we're connected, try to refresh
         if self.balance <= 0 and self.is_connected:
             print("Balance is zero, attempting to refresh")
             self._get_balance()
             # Small delay to allow potential response to arrive
             time.sleep(0.5)
-        return self.balance
+        return max(0.0, self.balance)  # Ensure non-negative balance
         
     def disconnect(self):
         """Disconnect from WebSocket"""
@@ -377,3 +377,19 @@ class DerivAPI:
             self.is_connected = False
             self.active_contracts.clear()
             self.contract_callbacks.clear()
+    
+    def update_balance(self, profit_loss: float):
+        """Update balance with profit/loss from a trade"""
+        if self.balance > 0:
+            old_balance = self.balance
+            self.balance += profit_loss
+            print(f"Balance updated: {'+' if profit_loss >= 0 else ''}${profit_loss:.2f} -> ${self.balance:.2f}")
+            
+            # Trigger balance callback if set
+            if self.balance_callback:
+                try:
+                    self.balance_callback(self.balance)
+                except Exception as e:
+                    print(f"Error in balance callback: {e}")
+        else:
+            print(f"Cannot update balance: current balance is {self.balance}")

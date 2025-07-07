@@ -191,16 +191,21 @@ Edit React components in `frontend/src/` to modify:
 
 ### Common Issues
 
-1. **Connection Failed**: 
+1. **"'TradingBot' object has no attribute 'get_balance'" Error**: 
+   - Ensure you're using the latest version of trading_bot.py
+   - Restart the backend server: `python app.py`
+   - Check that all required methods are implemented
+
+2. **Connection Failed**: 
    - Check your API token
    - Ensure you have trading permissions
    - Verify internet connection
 
-2. **Backend Not Starting**:
+3. **Backend Not Starting**:
    - Install all requirements: `pip install -r requirements.txt`
    - Check Python version (3.8+)
 
-3. **Frontend Not Loading**:
+4. **Frontend Not Loading**:
    - Install dependencies: `npm install`
    - Check Node.js version (16+)
 
