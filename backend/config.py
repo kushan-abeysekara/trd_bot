@@ -17,6 +17,22 @@ FORCE_STRATEGY_SIGNALS = True  # Force more aggressive signal generation
 AGGRESSIVE_SIGNAL_MODE = True  # Enable aggressive signal generation
 SIGNAL_CONFIDENCE_THRESHOLD = 0.50  # Lowered threshold for more signals
 
+# Risk Management Settings
+MAX_CONSECUTIVE_LOSSES = 2  # Stop trading after 2 consecutive losses
+MAX_SESSION_TRADES = 20  # Cap at 20 trades per session
+DEFAULT_RISK_REWARD_RATIO = 2.0  # Default 2:1 risk-reward ratio
+
+# Strategy Optimization Settings
+ENABLE_PARAMETER_OPTIMIZATION = True
+MACD_FAST_PERIOD = 12
+MACD_SLOW_PERIOD = 26
+MACD_SIGNAL_PERIOD = 9
+RSI_PERIOD = 7
+BOLLINGER_PERIOD = 20
+BOLLINGER_STD_DEV = 2.0
+ATR_PERIOD = 14
+DONCHIAN_PERIOD = 20
+
 # Simulation Settings (for demo purposes)
 SIMULATED_WIN_RATE = 0.6  # 60% win rate
 PAYOUT_MULTIPLIER = 1.95  # 95% payout

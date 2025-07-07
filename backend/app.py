@@ -675,6 +675,81 @@ def get_updates():
     }), 200
 
 
+@app.route('/api/strategy-optimizer', methods=['GET'])
+def get_optimizer_status():
+    """Get strategy optimizer status and best parameters"""
+    global bot_instance
+    
+    if not bot_instance:
+        return jsonify({'error': 'Not connected to API'}), 400
+        
+    try:
+        best_params = {}
+        if hasattr(bot_instance, 'strategy_engine') and hasattr(bot_instance.strategy_engine, 'optimizer'):
+            optimizer = bot_instance.strategy_engine.optimizer
+            best_params = optimizer.best_parameters
+            
+        return jsonify({
+            'optimizer_active': True,
+            'best_parameters': best_params,
+            'strategies_optimized': len(best_params)
+        }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/risk-management', methods=['GET'])
+def get_risk_management():
+    """Get current risk management status"""
+    global bot_instance
+    
+    if not bot_instance:
+        return jsonify({'error': 'Not connected to API'}), 400
+        
+    try:
+        if hasattr(bot_instance, 'strategy_engine'):
+            consecutive_losses = bot_instance.strategy_engine.consecutive_losses
+            max_consecutive_losses = bot_instance.strategy_engine.max_consecutive_losses
+            session_trades = bot_instance.strategy_engine.session_trades
+            max_session_trades = bot_instance.strategy_engine.max_session_trades
+            
+            return jsonify({
+                'consecutive_losses': consecutive_losses,
+                'max_consecutive_losses': max_consecutive_losses,
+                'session_trades': session_trades,
+                'max_session_trades': max_session_trades,
+                'trading_blocked': consecutive_losses >= max_consecutive_losses or session_trades >= max_session_trades
+            }), 200
+        else:
+            return jsonify({'error': 'Strategy engine not initialized'}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/risk-management/reset', methods=['POST'])
+def reset_risk_management():
+    """Reset risk management counters"""
+    global bot_instance
+    
+    if not bot_instance:
+        return jsonify({'error': 'Not connected to API'}), 400
+        
+    try:
+        if hasattr(bot_instance, 'strategy_engine'):
+            bot_instance.strategy_engine.consecutive_losses = 0
+            bot_instance.strategy_engine.session_trades = 0
+            
+            return jsonify({
+                'message': 'Risk management counters reset',
+                'consecutive_losses': 0,
+                'session_trades': 0
+            }), 200
+        else:
+            return jsonify({'error': 'Strategy engine not initialized'}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# ... existing code ...
 if __name__ == '__main__':
     # Register cleanup handler
     import atexit

@@ -60,6 +60,20 @@ class TradingBot:
         self.trades_before_double = random.randint(2, 5)  # Random number between 2-5
         self.double_stake_active = False  # Flag for UI notification
         
+        # Risk management settings
+        self.risk_management = {
+            'max_trades_per_session': 20,  # Default max trades per session
+            'max_consecutive_losses': 5,   # Default max consecutive losses
+            'max_daily_loss': 0.0,         # Default max daily loss (0 means no limit)
+            'cooling_period': 0,           # Default cooling period in minutes after hitting limits
+            'session_trade_count': 0,      # Track trades in current session
+            'consecutive_losses': 0,       # Track consecutive losses
+            'daily_loss': 0.0,             # Track daily loss
+            'risk_limits_hit': False,      # Flag to indicate if risk limits were hit
+            'trading_suspended_until': 0,  # Timestamp until trading is suspended
+            'limits_hit_reason': ''        # Reason for hitting limits
+        }
+        
     def set_callback(self, event: str, callback):
         """Set callback for events"""
         self.callbacks[event] = callback
@@ -104,6 +118,9 @@ class TradingBot:
         self.next_double_trade = False
         self.trades_before_double = random.randint(2, 5)
         self.double_stake_active = False
+        
+        # Reset risk management tracking for new session
+        self.reset_risk_management(full_reset=True)
         
         # Start strategy scanning
         self.strategy_scanning = True
@@ -188,6 +205,10 @@ class TradingBot:
         self.signal_count += 1
         
         print(f"📡 Signal #{self.signal_count} received: {signal.strategy_name} ({signal.confidence:.2f})")
+        
+        # Check risk management limits before processing signal
+        if not self._check_risk_limits():
+            return
         
         # Global signal interval check - shorter for tick-based trading
         if current_time - self.last_signal_time < self.min_signal_interval:
@@ -426,11 +447,18 @@ class TradingBot:
                 profit_loss = payout - trade_info['buy_price']
                 self.stats['winning_trades'] += 1
                 print(f"✅ Trade WON: Market moved {'UP' if market_move_up else 'DOWN'}, {contract_type} contract")
+                # Reset consecutive losses counter
+                self.risk_management['consecutive_losses'] = 0
             else:
                 profit_loss = -trade_info['buy_price']
                 self.stats['losing_trades'] += 1
                 print(f"❌ Trade LOST: Market moved {'UP' if market_move_up else 'DOWN'}, {contract_type} contract")
+                # Increment consecutive losses counter
+                self.risk_management['consecutive_losses'] += 1
                 
+            # Update daily loss tracker (negative for losses)
+            self.risk_management['daily_loss'] += profit_loss if profit_loss < 0 else 0
+            
             self.stats['total_trades'] += 1
             self.stats['total_profit_loss'] += profit_loss
             self.stats['winning_rate'] = (self.stats['winning_trades'] / self.stats['total_trades']) * 100
@@ -491,6 +519,15 @@ class TradingBot:
             # Emit complete trade update with all final info
             if self.callbacks.get('trade_update'):
                 self.callbacks['trade_update'](trade_info)
+            
+            # Register trade result with strategy engine for optimization and risk management
+            strategy_name = signal.strategy_name
+            self.strategy_engine.register_trade_result(
+                strategy_name, 
+                contract_type,
+                is_win, 
+                profit_loss
+            )
             
             # Check if take profit or stop loss limits are hit
             if self.check_profit_loss_limits():
@@ -598,6 +635,127 @@ class TradingBot:
         self.stop_loss_amount = amount
         print(f"Stop Loss: {'Enabled' if enabled else 'Disabled'} at ${amount}")
         
+    def _check_risk_limits(self):
+        """Check if any risk management limits have been hit"""
+        current_time = time.time()
+        
+        # Check if trading is suspended due to cooling period
+        if self.risk_management['trading_suspended_until'] > current_time:
+            remaining_time = int(self.risk_management['trading_suspended_until'] - current_time)
+            print(f"🧊 Trading suspended for {remaining_time} more seconds due to {self.risk_management['limits_hit_reason']}")
+            return False
+            
+        # Check max trades per session
+        if self.risk_management['session_trade_count'] >= self.risk_management['max_trades_per_session']:
+            print(f"🛑 Risk management: Maximum {self.risk_management['max_trades_per_session']} trades for this session reached.")
+            self.risk_management['risk_limits_hit'] = True
+            self.risk_management['limits_hit_reason'] = 'maximum trades per session'
+            
+            # Apply cooling period if configured
+            if self.risk_management['cooling_period'] > 0:
+                self.risk_management['trading_suspended_until'] = current_time + (self.risk_management['cooling_period'] * 60)
+                print(f"🧊 Trading suspended for {self.risk_management['cooling_period']} minutes")
+                
+                # Notify frontend about risk limit (non-blocking)
+                if self.callbacks['trade_update']:
+                    try:
+                        self.callbacks['trade_update']({
+                            'type': 'risk_limit',
+                            'reason': f"Maximum {self.risk_management['max_trades_per_session']} trades reached",
+                            'suspended_for': self.risk_management['cooling_period'] * 60,
+                            'timestamp': datetime.now().isoformat()
+                        })
+                    except Exception as e:
+                        print(f"⚠️  Error sending risk limit notification: {e}")
+            
+            return False
+            
+        # Check consecutive losses limit
+        if (self.risk_management['max_consecutive_losses'] > 0 and 
+            self.risk_management['consecutive_losses'] >= self.risk_management['max_consecutive_losses']):
+            print(f"🛑 Risk management: Maximum {self.risk_management['max_consecutive_losses']} consecutive losses reached.")
+            self.risk_management['risk_limits_hit'] = True
+            self.risk_management['limits_hit_reason'] = 'maximum consecutive losses'
+            
+            if self.risk_management['cooling_period'] > 0:
+                self.risk_management['trading_suspended_until'] = current_time + (self.risk_management['cooling_period'] * 60)
+                
+            # Notify frontend about risk limit
+            if self.callbacks['trade_update']:
+                try:
+                    self.callbacks['trade_update']({
+                        'type': 'risk_limit',
+                        'reason': f"Maximum {self.risk_management['max_consecutive_losses']} consecutive losses reached",
+                        'suspended_for': self.risk_management['cooling_period'] * 60,
+                        'timestamp': datetime.now().isoformat()
+                    })
+                except Exception as e:
+                    print(f"⚠️  Error sending risk limit notification: {e}")
+            
+            return False
+            
+        # Check max daily loss limit
+        if (self.risk_management['max_daily_loss'] > 0 and 
+            abs(self.risk_management['daily_loss']) >= self.risk_management['max_daily_loss']):
+            print(f"🛑 Risk management: Maximum daily loss of ${self.risk_management['max_daily_loss']} reached.")
+            self.risk_management['risk_limits_hit'] = True
+            self.risk_management['limits_hit_reason'] = 'maximum daily loss'
+            
+            if self.risk_management['cooling_period'] > 0:
+                self.risk_management['trading_suspended_until'] = current_time + (self.risk_management['cooling_period'] * 60)
+                
+            # Notify frontend about risk limit
+            if self.callbacks['trade_update']:
+                try:
+                    self.callbacks['trade_update']({
+                        'type': 'risk_limit',
+                        'reason': f"Maximum daily loss of ${self.risk_management['max_daily_loss']} reached",
+                        'suspended_for': self.risk_management['cooling_period'] * 60,
+                        'timestamp': datetime.now().isoformat()
+                    })
+                except Exception as e:
+                    print(f"⚠️  Error sending risk limit notification: {e}")
+            
+            return False
+        
+        # Increment session trade count before proceeding
+        self.risk_management['session_trade_count'] += 1
+        return True
+    
+    def set_risk_limits(self, max_trades: int = None, max_losses: int = None, 
+                       max_daily_loss: float = None, cooling_period: int = None):
+        """Set risk management limits"""
+        if max_trades is not None:
+            self.risk_management['max_trades_per_session'] = max(1, int(max_trades))
+            print(f"Set maximum trades per session to {self.risk_management['max_trades_per_session']}")
+            
+        if max_losses is not None:
+            self.risk_management['max_consecutive_losses'] = max(0, int(max_losses))
+            print(f"Set maximum consecutive losses to {self.risk_management['max_consecutive_losses']}")
+            
+        if max_daily_loss is not None:
+            self.risk_management['max_daily_loss'] = max(0, float(max_daily_loss))
+            print(f"Set maximum daily loss to ${self.risk_management['max_daily_loss']}")
+            
+        if cooling_period is not None:
+            self.risk_management['cooling_period'] = max(0, int(cooling_period))
+            print(f"Set cooling period to {self.risk_management['cooling_period']} minutes")
+    
+    def reset_risk_management(self, full_reset=False):
+        """Reset risk management tracking"""
+        print(f"Resetting risk management tracking{' (full reset)' if full_reset else ''}")
+        
+        # Always reset these counters
+        self.risk_management['session_trade_count'] = 0
+        self.risk_management['consecutive_losses'] = 0
+        self.risk_management['risk_limits_hit'] = False
+        self.risk_management['trading_suspended_until'] = 0
+        self.risk_management['limits_hit_reason'] = ''
+        
+        # Only reset daily loss on full reset (typically done once per day)
+        if full_reset:
+            self.risk_management['daily_loss'] = 0.0
+    
     def get_bot_status(self):
         """Get current bot status for debugging"""
         current_time = time.time()
@@ -637,7 +795,21 @@ class TradingBot:
             'trades_before_double': self.trades_before_double,
             'verification_errors': self.verification_errors,
             'market_movement_history': [('UP' if m else 'DOWN') for m in self.last_market_movements],
-            # Add more status fields
+            
+            # Add risk management information to status
+            'risk_management': {
+                'max_trades_per_session': self.risk_management['max_trades_per_session'],
+                'current_trades': self.risk_management['session_trade_count'],
+                'max_consecutive_losses': self.risk_management['max_consecutive_losses'],
+                'current_consecutive_losses': self.risk_management['consecutive_losses'],
+                'max_daily_loss': self.risk_management['max_daily_loss'],
+                'current_daily_loss': self.risk_management['daily_loss'],
+                'cooling_period_minutes': self.risk_management['cooling_period'],
+                'trading_suspended': self.risk_management['trading_suspended_until'] > current_time,
+                'suspended_remaining': max(0, self.risk_management['trading_suspended_until'] - current_time),
+                'limits_hit': self.risk_management['risk_limits_hit'],
+                'limits_hit_reason': self.risk_management['limits_hit_reason']
+            },
         }
         
         return status

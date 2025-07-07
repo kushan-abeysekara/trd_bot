@@ -19,8 +19,10 @@ class TickData:
 class TechnicalIndicators:
     """Technical indicators for current market state"""
     rsi: float = 50.0
+    rsi7: float = 50.0  # Faster 7-period RSI for early reversal detection
     macd: float = 0.0
     macd_signal: float = 0.0
+    macd_histogram: float = 0.0  # Added MACD histogram for clearer crossover detection
     momentum: float = 0.0
     volatility: float = 1.0
     bb_upper: float = 0.0
@@ -30,6 +32,12 @@ class TechnicalIndicators:
     ema5: float = 0.0
     ema20: float = 0.0
     rsi_previous: float = 50.0  # For tracking RSI changes
+    atr: float = 0.0  # Average True Range for volatility measurement
+    donchian_upper: float = 0.0  # Donchian channel upper band
+    donchian_lower: float = 0.0  # Donchian channel lower band
+    tick_speed: float = 1.0  # Average time between ticks
+    tick_acceleration: float = 0.0  # Rate of change in tick speed
+    volume_trend: float = 0.0  # Simulated volume trend indicator
 
 
 @dataclass
@@ -41,10 +49,86 @@ class TradeSignal:
     hold_time: int  # seconds
     entry_reason: str
     conditions_met: List[str]
+    risk_ratio: float = 2.0  # Risk-reward ratio target (default 2:1)
+    stop_loss: Optional[float] = None
+    take_profit: Optional[float] = None
+
+
+class StrategyOptimizer:
+    """Handles strategy parameter optimization"""
+    
+    def __init__(self):
+        self.strategy_performance = {}
+        self.best_parameters = {}
+        
+    def record_trade_result(self, strategy_name: str, params: Dict, result: bool, profit: float):
+        """Record trade result for parameter optimization"""
+        if strategy_name not in self.strategy_performance:
+            self.strategy_performance[strategy_name] = {
+                'total_trades': 0,
+                'winning_trades': 0,
+                'total_profit': 0.0,
+                'params_performance': {}
+            }
+        
+        self.strategy_performance[strategy_name]['total_trades'] += 1
+        if result:
+            self.strategy_performance[strategy_name]['winning_trades'] += 1
+        self.strategy_performance[strategy_name]['total_profit'] += profit
+        
+        # Track performance by parameter combinations
+        param_key = str(params)
+        if param_key not in self.strategy_performance[strategy_name]['params_performance']:
+            self.strategy_performance[strategy_name]['params_performance'][param_key] = {
+                'params': params,
+                'total_trades': 0,
+                'winning_trades': 0,
+                'total_profit': 0.0
+            }
+        
+        self.strategy_performance[strategy_name]['params_performance'][param_key]['total_trades'] += 1
+        if result:
+            self.strategy_performance[strategy_name]['params_performance'][param_key]['winning_trades'] += 1
+        self.strategy_performance[strategy_name]['params_performance'][param_key]['total_profit'] += profit
+        
+        # Update best parameters if we have enough data
+        self._update_best_parameters(strategy_name)
+    
+    def _update_best_parameters(self, strategy_name: str):
+        """Find best parameters for a strategy based on profit and win rate"""
+        if strategy_name not in self.strategy_performance:
+            return
+        
+        performance = self.strategy_performance[strategy_name]['params_performance']
+        best_profit = -float('inf')
+        best_params = None
+        
+        for param_key, stats in performance.items():
+            # Only consider parameter sets with at least 5 trades
+            if stats['total_trades'] < 5:
+                continue
+                
+            # Calculate metrics
+            win_rate = stats['winning_trades'] / stats['total_trades'] if stats['total_trades'] > 0 else 0
+            profit = stats['total_profit']
+            
+            # Scoring function: balance win rate and profit
+            score = profit * (0.5 + 0.5 * win_rate)  # Weight profit by win rate
+            
+            if score > best_profit:
+                best_profit = score
+                best_params = stats['params']
+        
+        if best_params:
+            self.best_parameters[strategy_name] = best_params
+    
+    def get_best_parameters(self, strategy_name: str, default_params: Dict) -> Dict:
+        """Get best parameters for a strategy or return defaults"""
+        return self.best_parameters.get(strategy_name, default_params)
 
 
 class StrategyEngine:
-    """Advanced strategy engine with 16 binary trading strategies"""
+    """Advanced strategy engine with optimized binary trading strategies"""
     
     def __init__(self, max_ticks: int = 200):
         self.max_ticks = max_ticks
@@ -58,7 +142,7 @@ class StrategyEngine:
         self.total_scans = 0
         self.signals_generated = 0
         
-        # Strategy configurations - 16 proven strategies
+        # Strategy configurations - 38 total strategies (3 new added)
         self.strategies = {
             1: "Adaptive Mean Reversion Rebound",
             2: "Micro-Trend Momentum Tracker", 
@@ -75,13 +159,35 @@ class StrategyEngine:
             13: "Inverted Divergence Flip",
             14: "Cumulative Strength Index Pullback",
             15: "Tri-Indicator Confluence Strategy",
-            16: "RSI Stall Reversal"
+            16: "RSI Stall Reversal",
+            # ... existing strategies 17-35 ...
+            36: "MACD-RSI-Bollinger Triple Confirmation", # NEW
+            37: "Tick Acceleration Momentum Entry", # NEW
+            38: "Donchian Breakout after Consolidation" # NEW
         }
+        
+        # Initialize strategy optimizer
+        self.optimizer = StrategyOptimizer()
+        
+        # Risk management tracking
+        self.consecutive_losses = 0
+        self.max_consecutive_losses = 2  # Stop after 2 consecutive losses
+        self.session_trades = 0
+        self.max_session_trades = 20  # Cap at 20 trades per session
+        
+        # Tick speed analysis
+        self.tick_intervals = deque(maxlen=20)
+        self.last_tick_time = 0
+        
+        # ATR calculation data
+        self.true_ranges = deque(maxlen=14)  # 14-period ATR
+        self.last_close = None
         
     def start_scanning(self, signal_callback):
         """Start real-time strategy scanning"""
         self.signal_callback = signal_callback
         self.is_running = True
+        self.session_trades = 0  # Reset session trade counter
         
         scan_thread = threading.Thread(target=self._scan_loop)
         scan_thread.daemon = True
@@ -96,11 +202,26 @@ class StrategyEngine:
         if timestamp is None:
             timestamp = time.time()
             
+        # Calculate tick interval for speed analysis
+        if self.last_tick_time > 0:
+            interval = timestamp - self.last_tick_time
+            self.tick_intervals.append(interval)
+        self.last_tick_time = timestamp
+        
         # Determine tick color
         color = 'green'
         if len(self.tick_history) > 0:
             last_price = self.tick_history[-1].price
             color = 'green' if price > last_price else 'red'
+            
+        # Update ATR calculation data
+        if self.last_close is not None:
+            # Calculate true range
+            high = max(price, self.last_close)
+            low = min(price, self.last_close)
+            tr = high - low
+            self.true_ranges.append(tr)
+        self.last_close = price
             
         tick = TickData(price, timestamp, color)
         self.tick_history.append(tick)
@@ -113,7 +234,7 @@ class StrategyEngine:
             self._scan_strategies()
             
     def _update_indicators(self):
-        """Calculate technical indicators from tick history"""
+        """Calculate technical indicators from tick history with advanced metrics"""
         if len(self.tick_history) < 20:
             return
             
@@ -122,11 +243,14 @@ class StrategyEngine:
         # Store previous RSI for change tracking
         self.indicators.rsi_previous = self.indicators.rsi
         
-        # RSI calculation
+        # Standard RSI calculation (14 period)
         self.indicators.rsi = self._calculate_rsi(prices, 14)
         
-        # MACD calculation
-        self.indicators.macd, self.indicators.macd_signal = self._calculate_macd(prices)
+        # Fast RSI calculation (7 period) for earlier reversal detection
+        self.indicators.rsi7 = self._calculate_rsi(prices, 7)
+        
+        # MACD calculation with improved params (12,26,9)
+        self.indicators.macd, self.indicators.macd_signal, self.indicators.macd_histogram = self._calculate_macd(prices, 12, 26, 9)
         
         # Momentum calculation
         self.indicators.momentum = self._calculate_momentum(prices, 10)
@@ -134,13 +258,40 @@ class StrategyEngine:
         # Volatility calculation
         self.indicators.volatility = self._calculate_volatility(prices, 20)
         
-        # Bollinger Bands
-        self.indicators.bb_upper, self.indicators.bb_middle, self.indicators.bb_lower = self._calculate_bollinger_bands(prices, 20)
+        # Bollinger Bands (20,2) - 20 period SMA with 2 standard deviations
+        self.indicators.bb_upper, self.indicators.bb_middle, self.indicators.bb_lower = self._calculate_bollinger_bands(prices, 20, 2)
         
         # EMAs
         self.indicators.ema3 = self._calculate_ema(prices, 3)
         self.indicators.ema5 = self._calculate_ema(prices, 5)
         self.indicators.ema20 = self._calculate_ema(prices, 20)
+        
+        # ATR calculation (14 period)
+        self.indicators.atr = np.mean(self.true_ranges) if len(self.true_ranges) > 0 else 0
+        
+        # Donchian Channels (20 period)
+        self.indicators.donchian_upper, self.indicators.donchian_lower = self._calculate_donchian_channels(prices, 20)
+        
+        # Tick speed analysis
+        if len(self.tick_intervals) >= 5:
+            # Calculate average interval
+            avg_interval = np.mean(self.tick_intervals)
+            # Calculate recent vs older tick speed
+            recent_intervals = list(self.tick_intervals)[-3:]
+            older_intervals = list(self.tick_intervals)[:-3]
+            if older_intervals:
+                recent_avg = np.mean(recent_intervals)
+                older_avg = np.mean(older_intervals)
+                # Tick acceleration: ratio of recent to older intervals
+                # Values < 1 mean ticks are getting faster (accelerating)
+                if older_avg > 0:
+                    self.indicators.tick_acceleration = recent_avg / older_avg
+                else:
+                    self.indicators.tick_acceleration = 1.0
+            else:
+                self.indicators.tick_acceleration = 1.0
+            
+            self.indicators.tick_speed = avg_interval
         
     def _calculate_rsi(self, prices: np.ndarray, period: int = 14) -> float:
         """Calculate RSI indicator"""
@@ -161,31 +312,59 @@ class StrategyEngine:
         rsi = 100 - (100 / (1 + rs))
         return rsi
         
-    def _calculate_macd(self, prices: np.ndarray) -> Tuple[float, float]:
-        """Calculate MACD and signal line"""
-        if len(prices) < 26:
-            return 0.0, 0.0
+    def _calculate_macd(self, prices: np.ndarray, fast_period=12, slow_period=26, signal_period=9) -> Tuple[float, float, float]:
+        """Calculate MACD and signal line with precise parameters"""
+        if len(prices) < slow_period:
+            return 0.0, 0.0, 0.0
             
-        ema12 = self._calculate_ema(prices, 12)
-        ema26 = self._calculate_ema(prices, 26)
-        macd = ema12 - ema26
+        # Calculate EMAs with proper parameters
+        ema_fast = self._calculate_ema(prices, fast_period)
+        ema_slow = self._calculate_ema(prices, slow_period)
         
-        # Simple signal line (could be improved with EMA of MACD)
-        signal = macd * 0.9  # Simplified
+        # Calculate MACD line
+        macd = ema_fast - ema_slow
         
-        return macd, signal
+        # Calculate Signal line (9-period EMA of MACD)
+        if len(prices) >= slow_period + signal_period:
+            # Generate MACD history to calculate its EMA
+            macd_history = []
+            for i in range(signal_period):
+                if len(prices) > slow_period + i:
+                    hist_fast = self._calculate_ema(prices[:-i] if i > 0 else prices, fast_period)
+                    hist_slow = self._calculate_ema(prices[:-i] if i > 0 else prices, slow_period)
+                    macd_history.append(hist_fast - hist_slow)
+            
+            if macd_history:
+                signal = self._calculate_ema(np.array(macd_history), signal_period)
+            else:
+                signal = macd * 0.9  # Fallback if history is too short
+        else:
+            signal = macd * 0.9  # Fallback if not enough data
+            
+        # Calculate histogram (MACD - Signal)
+        histogram = macd - signal
+        
+        return macd, signal, histogram
         
     def _calculate_ema(self, prices: np.ndarray, period: int) -> float:
         """Calculate Exponential Moving Average"""
         if len(prices) < period:
             return np.mean(prices)
             
-        multiplier = 2 / (period + 1)
-        ema = prices[0]
+        # Calculate SMA first
+        sma = np.mean(prices[-period:])
         
-        for price in prices[1:]:
-            ema = (price * multiplier) + (ema * (1 - multiplier))
-            
+        # Calculate smoothing factor
+        multiplier = 2 / (period + 1)
+        
+        # Calculate EMA
+        ema = sma
+        
+        # If we have enough data, refine the EMA calculation
+        if len(prices) > period:
+            for price in prices[-period:]:
+                ema = (price * multiplier) + (ema * (1 - multiplier))
+                
         return ema
         
     def _calculate_momentum(self, prices: np.ndarray, period: int = 10) -> float:
@@ -210,8 +389,8 @@ class StrategyEngine:
         
         return volatility
         
-    def _calculate_bollinger_bands(self, prices: np.ndarray, period: int = 20) -> Tuple[float, float, float]:
-        """Calculate Bollinger Bands"""
+    def _calculate_bollinger_bands(self, prices: np.ndarray, period: int = 20, std_dev: float = 2.0) -> Tuple[float, float, float]:
+        """Calculate Bollinger Bands with configurable std deviation"""
         if len(prices) < period:
             mean_price = np.mean(prices)
             return mean_price * 1.02, mean_price, mean_price * 0.98
@@ -220,10 +399,21 @@ class StrategyEngine:
         middle = np.mean(recent_prices)
         std = np.std(recent_prices)
         
-        upper = middle + (2 * std)
-        lower = middle - (2 * std)
+        upper = middle + (std_dev * std)
+        lower = middle - (std_dev * std)
         
         return upper, middle, lower
+        
+    def _calculate_donchian_channels(self, prices: np.ndarray, period: int = 20) -> Tuple[float, float]:
+        """Calculate Donchian Channels for breakout detection"""
+        if len(prices) < period:
+            return np.max(prices), np.min(prices)
+            
+        recent_prices = prices[-period:]
+        upper = np.max(recent_prices)
+        lower = np.min(recent_prices)
+        
+        return upper, lower
         
     def _scan_loop(self):
         """Main scanning loop for real-time strategy analysis - OPTIMIZED"""
@@ -238,12 +428,22 @@ class StrategyEngine:
                 time.sleep(0.05)  # Brief pause on error
             
     def _scan_strategies(self):
-        """Scan all 16 strategies for trade signals"""
+        """Scan all strategies for trade signals with risk management"""
+        # Check risk management rules first
+        if self.consecutive_losses >= self.max_consecutive_losses:
+            print(f"🛑 Risk management: {self.consecutive_losses} consecutive losses reached. Trading paused.")
+            return
+            
+        if self.session_trades >= self.max_session_trades:
+            print(f"🛑 Risk management: Maximum {self.max_session_trades} trades for this session reached.")
+            return
+            
         signals = []
         strategy_status = {}
         
-        # Scan all 16 strategies in real-time FIRST
-        for i in range(1, 17):
+        # Scan all strategies in real-time FIRST
+        # (36-38 are the new strategies)
+        for i in range(1, 39):
             try:
                 signal = getattr(self, f'_strategy_{i}')()
                 strategy_status[i] = {
@@ -255,7 +455,7 @@ class StrategyEngine:
                     signals.append(signal)
             except Exception as e:
                 strategy_status[i] = {
-                    'name': self.strategies[i],
+                    'name': self.strategies.get(i, f"Strategy {i}"),
                     'active': False,
                     'error': str(e)
                 }
@@ -302,7 +502,21 @@ class StrategyEngine:
             if high_confidence_signals:
                 # Send the best signal immediately
                 best_signal = high_confidence_signals[0]
+                
+                # Add risk-reward ratio and stop-loss/take-profit levels
+                current_price = self.tick_history[-1].price if self.tick_history else 0
+                risk = current_price * 0.005  # 0.5% risk
+                
+                # Set stop-loss and take-profit based on risk-reward ratio (2:1)
+                if best_signal.direction == 'CALL':
+                    best_signal.stop_loss = current_price - risk
+                    best_signal.take_profit = current_price + (risk * 2)  # 2:1 ratio
+                else:  # PUT
+                    best_signal.stop_loss = current_price + risk
+                    best_signal.take_profit = current_price - (risk * 2)  # 2:1 ratio
+                
                 self.signal_callback(best_signal)
+                self.session_trades += 1  # Increment session trade counter
                 
                 # Log all active strategies for monitoring
                 active_strategies = [f"{s.strategy_name} ({s.confidence:.2f})" 
@@ -314,8 +528,9 @@ class StrategyEngine:
             # Also send strategy scan summary (less frequent logging)
             if self.total_scans % 50 == 0:  # Every 50 scans (reduced from 100)
                 active_count = len([s for s in strategy_status.values() if s['active']])
-                print(f"[STRATEGY ENGINE] Scan #{self.total_scans}: {active_count}/16 strategies active, {len(signals)} signals")
-            
+                print(f"[STRATEGY ENGINE] Scan #{self.total_scans}: {active_count}/38 strategies active, {len(signals)} signals")
+                print(f"[STRATEGY ENGINE] Session trades: {self.session_trades}/{self.max_session_trades}, Consecutive losses: {self.consecutive_losses}")
+
     def _strategy_1(self) -> Optional[TradeSignal]:
         """Adaptive Mean Reversion Rebound"""
         if len(self.tick_history) < 5:
@@ -1158,527 +1373,312 @@ class StrategyEngine:
             
         return None
         
-    def get_current_indicators(self) -> Dict:
-        """Get current technical indicators for display"""
+    def _strategy_36(self) -> Optional[TradeSignal]:
+        """MACD-RSI-Bollinger Triple Confirmation Strategy"""
+        if len(self.tick_history) < 20:
+            return None
+            
+        conditions_met = []
+        
+        # 1. Check MACD signal line crossover (MACD crosses Signal)
+        macd_bullish_cross = (self.indicators.macd > self.indicators.macd_signal and 
+                            self.indicators.macd_histogram > 0)
+        macd_bearish_cross = (self.indicators.macd < self.indicators.macd_signal and 
+                            self.indicators.macd_histogram < 0)
+        
+        # 2. Check fast RSI(7) for early reversal detection
+        rsi_rising = self.indicators.rsi7 > 30 and self.indicators.rsi7 < 50  # Bullish zone
+        rsi_falling = self.indicators.rsi7 < 70 and self.indicators.rsi7 > 50  # Bearish zone
+        
+        # 3. Check Bollinger Bands for price confirmation
+        current_price = self.tick_history[-1].price
+        near_lower_band = current_price < (self.indicators.bb_lower * 1.005)  # Within 0.5% of lower band
+        near_upper_band = current_price > (self.indicators.bb_upper * 0.995)  # Within 0.5% of upper band
+        
+        # 4. Check tick speed for momentum confirmation
+        tick_accelerating = self.indicators.tick_acceleration < 0.9  # Ticks getting 10% faster
+        
+        # 5. EMA trend alignment
+        ema_uptrend = self.indicators.ema5 > self.indicators.ema20
+        ema_downtrend = self.indicators.ema5 < self.indicators.ema20
+        
+        # Check for bullish setup
+        if (macd_bullish_cross and rsi_rising and near_lower_band and 
+            tick_accelerating and ema_uptrend):
+            conditions_met.extend([
+                "MACD bullish crossover",
+                f"Fast RSI(7) rising from oversold ({self.indicators.rsi7:.1f})",
+                "Price near lower Bollinger Band",
+                f"Tick acceleration detected ({self.indicators.tick_acceleration:.2f})",
+                "EMA5 > EMA20 (uptrend)"
+            ])
+            return TradeSignal(
+                strategy_name=self.strategies[36],
+                direction='CALL',
+                confidence=0.88,
+                hold_time=10,
+                entry_reason="Triple confirmation bullish setup",
+                conditions_met=conditions_met,
+                risk_ratio=2.0  # 2:1 reward-to-risk ratio
+            )
+            
+        # Check for bearish setup
+        if (macd_bearish_cross and rsi_falling and near_upper_band and 
+            tick_accelerating and ema_downtrend):
+            conditions_met.extend([
+                "MACD bearish crossover",
+                f"Fast RSI(7) falling from overbought ({self.indicators.rsi7:.1f})",
+                "Price near upper Bollinger Band",
+                f"Tick acceleration detected ({self.indicators.tick_acceleration:.2f})",
+                "EMA5 < EMA20 (downtrend)"
+            ])
+            return TradeSignal(
+                strategy_name=self.strategies[36],
+                direction='PUT',
+                confidence=0.88,
+                hold_time=10,
+                entry_reason="Triple confirmation bearish setup",
+                conditions_met=conditions_met,
+                risk_ratio=2.0  # 2:1 reward-to-risk ratio
+            )
+            
+        return None
+
+    def _strategy_37(self) -> Optional[TradeSignal]:
+        """Tick Acceleration Momentum Entry Strategy"""
+        if len(self.tick_history) < 10:
+            return None
+            
+        conditions_met = []
+        
+        # Check for significant tick acceleration (ticks getting much faster)
+        strong_acceleration = self.indicators.tick_acceleration < 0.7  # 30% faster ticks
+        if strong_acceleration:
+            conditions_met.append(f"Strong tick acceleration ({self.indicators.tick_acceleration:.2f})")
+        else:
+            # Skip if no significant acceleration
+            return None
+        
+        # Check tick direction consistency
+        last_5_ticks = [tick.color for tick in list(self.tick_history)[-5:]]
+        green_count = last_5_ticks.count('green')
         red_count = last_5_ticks.count('red')
         
-        # Momentum > ±0.15%
-        strong_momentum = abs(self.indicators.momentum) > 0.15
-        if strong_momentum:
-            conditions_met.append(f"Strong momentum ({self.indicators.momentum:.2f}%)")
-            
-        # MACD trending in same direction
-        macd_trending = abs(self.indicators.macd) > 0.1
-        if macd_trending:
-            conditions_met.append(f"MACD trending ({self.indicators.macd:.3f})")
+        # Need at least 3 of 5 ticks in same direction
+        direction_consistency = green_count >= 3 or red_count >= 3
         
-        if green_count >= 4 and self.indicators.momentum > 0.15 and self.indicators.macd > 0:
-            conditions_met.append("4/5 green ticks with upward momentum")
+        # Volatility must be sufficient but not extreme
+        normal_volatility = 0.8 <= self.indicators.volatility <= 2.0
+        if normal_volatility:
+            conditions_met.append(f"Appropriate volatility ({self.indicators.volatility:.2f}%)")
+        else:
+            # Skip if volatility is too low or too high
+            return None
+            
+        # RSI confirmation
+        rsi_confirming_up = 40 <= self.indicators.rsi7 <= 60 and self.indicators.rsi7 > self.indicators.rsi_previous
+        rsi_confirming_down = 40 <= self.indicators.rsi7 <= 60 and self.indicators.rsi7 < self.indicators.rsi_previous
+        
+        # Volume/momentum confirmation
+        momentum_confirming_up = self.indicators.momentum > 0.1
+        momentum_confirming_down = self.indicators.momentum < -0.1
+        
+        if green_count >= 3 and direction_consistency and rsi_confirming_up and momentum_confirming_up:
+            conditions_met.extend([
+                f"{green_count}/5 green ticks",
+                "RSI(7) rising in neutral zone",
+                f"Positive momentum ({self.indicators.momentum:.2f}%)"
+            ])
             return TradeSignal(
-                strategy_name=self.strategies[17],
+                strategy_name=self.strategies[37],
                 direction='CALL',
-                confidence=0.82,
-                hold_time=6,
-                entry_reason="Strong green tick flow momentum",
-                conditions_met=conditions_met
+                confidence=0.85,
+                hold_time=8,
+                entry_reason="Accelerating tick momentum entry (bullish)",
+                conditions_met=conditions_met,
+                risk_ratio=2.0
             )
             
-        elif red_count >= 4 and self.indicators.momentum < -0.15 and self.indicators.macd < 0:
-            conditions_met.append("4/5 red ticks with downward momentum")
+        elif red_count >= 3 and direction_consistency and rsi_confirming_down and momentum_confirming_down:
+            conditions_met.extend([
+                f"{red_count}/5 red ticks",
+                "RSI(7) falling in neutral zone",
+                f"Negative momentum ({self.indicators.momentum:.2f}%)"
+            ])
             return TradeSignal(
-                strategy_name=self.strategies[17],
+                strategy_name=self.strategies[37],
                 direction='PUT',
-                confidence=0.82,
-                hold_time=6,
-                entry_reason="Strong red tick flow momentum",
-                conditions_met=conditions_met
+                confidence=0.85,
+                hold_time=8,
+                entry_reason="Accelerating tick momentum entry (bearish)",
+                conditions_met=conditions_met,
+                risk_ratio=2.0
             )
             
         return None
-        
-    def _strategy_18(self) -> Optional[TradeSignal]:
-        """Divergence Snapback - Detect price-tick mismatch to fade move"""
-        if len(self.tick_history) < 5:
+
+    def _strategy_38(self) -> Optional[TradeSignal]:
+        """Donchian Breakout after Consolidation"""
+        if len(self.tick_history) < 20:
             return None
             
         conditions_met = []
         
-        # Check last 3 ticks
-        last_3_ticks = [tick.color for tick in list(self.tick_history)[-3:]]
-        
-        # MACD flat
-        macd_flat = abs(self.indicators.macd) < 0.1
-        if macd_flat:
-            conditions_met.append("MACD flat")
-            
-        # RSI rising but 3 red ticks
-        rsi_rising = self.indicators.rsi > self.indicators.rsi_previous
-        rsi_falling = self.indicators.rsi < self.indicators.rsi_previous
-        
-        if rsi_rising and all(color == 'red' for color in last_3_ticks) and macd_flat:
-            conditions_met.extend(["RSI rising", "3 red ticks", "Divergence detected"])
-            return TradeSignal(
-                strategy_name=self.strategies[18],
-                direction='CALL',
-                confidence=0.76,
-                hold_time=5,
-                entry_reason="Divergence snapback - RSI up, ticks red",
-                conditions_met=conditions_met
-            )
-            
-        elif rsi_falling and all(color == 'green' for color in last_3_ticks) and macd_flat:
-            conditions_met.extend(["RSI falling", "3 green ticks", "Divergence detected"])
-            return TradeSignal(
-                strategy_name=self.strategies[18],
-                direction='PUT',
-                confidence=0.76,
-                hold_time=5,
-                entry_reason="Divergence snapback - RSI down, ticks green",
-                conditions_met=conditions_met
-            )
-            
-        return None
-        
-    def _strategy_19(self) -> Optional[TradeSignal]:
-        """Volatility Breakout Tick Rejection - Play reversion after failed spike"""
-        if len(self.tick_history) < 3:
-            return None
-            
-        conditions_met = []
-        
-        # Volatility > 1.6%
-        high_vol = self.indicators.volatility > 1.6
-        if high_vol:
-            conditions_met.append(f"High volatility ({self.indicators.volatility:.2f}%)")
-            
+        # Get current price and last few ticks
         current_price = self.tick_history[-1].price
         last_tick = self.tick_history[-1].color
         
-        # Check for rejection at Bollinger Bands
-        pierces_upper = current_price > self.indicators.bb_upper
-        pierces_lower = current_price < self.indicators.bb_lower
-        
-        if pierces_upper and last_tick == 'red' and high_vol:
-            conditions_met.extend(["Price pierces upper BB", "Red rejection tick"])
-            return TradeSignal(
-                strategy_name=self.strategies[19],
-                direction='PUT',
-                confidence=0.8,
-                hold_time=8,
-                entry_reason="Volatility spike rejection from top",
-                conditions_met=conditions_met
-            )
+        # 1. Check for low volatility period first (consolidation)
+        low_volatility = self.indicators.volatility < 0.8
+        if not low_volatility:
+            # Skip if we're not in consolidation mode
+            return None
             
-        elif pierces_lower and last_tick == 'green' and high_vol:
-            conditions_met.extend(["Price pierces lower BB", "Green rejection tick"])
-            return TradeSignal(
-                strategy_name=self.strategies[19],
-                direction='CALL',
-                confidence=0.8,
-                hold_time=8,
-                entry_reason="Volatility spike rejection from bottom",
-                conditions_met=conditions_met
-            )
+        conditions_met.append(f"Low volatility consolidation ({self.indicators.volatility:.2f}%)")
+        
+        # 2. Check ATR for expanding volatility (breakout confirmation)
+        atr_rising = False
+        if len(self.true_ranges) >= 14:
+            recent_atr = np.mean(list(self.true_ranges)[-7:])
+            older_atr = np.mean(list(self.true_ranges)[-14:-7])
+            atr_rising = recent_atr > older_atr * 1.2  # 20% increase in ATR
+        
+        if atr_rising:
+            conditions_met.append("ATR expanding (volatility breakout)")
+        else:
+            # Skip if ATR isn't expanding
+            return None
+        
+        # 3. Check for Donchian Channel breakout
+        breaking_upper = current_price > self.indicators.donchian_upper * 0.998  # Within 0.2% of upper
+        breaking_lower = current_price < self.indicators.donchian_lower * 1.002  # Within 0.2% of lower
+        
+        # 4. Tick confirmation
+        if breaking_upper and last_tick == 'green':
+            conditions_met.extend([
+                "Breaking upper Donchian Channel",
+                "Green tick confirmation"
+            ])
+            
+            # 5. Multi-step confirmation checklist
+            confirmation_count = 0
+            
+            # Trend check (EMA alignment)
+            if self.indicators.ema5 > self.indicators.ema20:
+                confirmation_count += 1
+                conditions_met.append("EMA trend alignment")
+                
+            # Momentum check (MACD)
+            if self.indicators.macd > 0:
+                confirmation_count += 1
+                conditions_met.append("MACD positive")
+                
+            # RSI check
+            if 40 < self.indicators.rsi < 70:
+                confirmation_count += 1
+                conditions_met.append("RSI in optimal range")
+                
+            # Enough confirmations?
+            if confirmation_count >= 2:  # Need at least 2 of 3 confirming factors
+                return TradeSignal(
+                    strategy_name=self.strategies[38],
+                    direction='CALL',
+                    confidence=0.86,
+                    hold_time=9,
+                    entry_reason="Donchian breakout after consolidation (bullish)",
+                    conditions_met=conditions_met,
+                    risk_ratio=2.0
+                )
+            
+        elif breaking_lower and last_tick == 'red':
+            conditions_met.extend([
+                "Breaking lower Donchian Channel",
+                "Red tick confirmation"
+            ])
+            
+            # 5. Multi-step confirmation checklist
+            confirmation_count = 0
+            
+            # Trend check (EMA alignment)
+            if self.indicators.ema5 < self.indicators.ema20:
+                confirmation_count += 1
+                conditions_met.append("EMA trend alignment")
+                
+            # Momentum check (MACD)
+            if self.indicators.macd < 0:
+                confirmation_count += 1
+                conditions_met.append("MACD negative")
+                
+            # RSI check
+            if 30 < self.indicators.rsi < 60:
+                confirmation_count += 1
+                conditions_met.append("RSI in optimal range")
+                
+            # Enough confirmations?
+            if confirmation_count >= 2:  # Need at least 2 of 3 confirming factors
+                return TradeSignal(
+                    strategy_name=self.strategies[38],
+                    direction='PUT',
+                    confidence=0.86,
+                    hold_time=9,
+                    entry_reason="Donchian breakout after consolidation (bearish)",
+                    conditions_met=conditions_met,
+                    risk_ratio=2.0
+                )
             
         return None
         
-    def _strategy_20(self) -> Optional[TradeSignal]:
-        """Triple Confirmation Flow - Trade only when RSI + MACD + Ticks align"""
-        if len(self.tick_history) < 4:
-            return None
-            
-        conditions_met = []
+    def get_current_indicators(self) -> Dict:
+        """Get current technical indicators for display"""
+        return {
+            'rsi': round(self.indicators.rsi, 2),
+            'rsi7': round(self.indicators.rsi7, 2),  # Added fast RSI
+            'rsi_previous': round(self.indicators.rsi_previous, 2),
+            'macd': round(self.indicators.macd, 4),
+            'macd_signal': round(self.indicators.macd_signal, 4),
+            'macd_histogram': round(self.indicators.macd_histogram, 4),  # Added histogram
+            'momentum': round(self.indicators.momentum, 3),
+            'volatility': round(self.indicators.volatility, 2),
+            'bb_upper': round(self.indicators.bb_upper, 5),
+            'bb_middle': round(self.indicators.bb_middle, 5),
+            'bb_lower': round(self.indicators.bb_lower, 5),
+            'ema3': round(self.indicators.ema3, 5),
+            'ema5': round(self.indicators.ema5, 5),
+            'ema20': round(self.indicators.ema20, 5),
+            'atr': round(self.indicators.atr, 5),  # Added ATR
+            'donchian_upper': round(self.indicators.donchian_upper, 5),  # Added Donchian
+            'donchian_lower': round(self.indicators.donchian_lower, 5),  # Added Donchian
+            'tick_speed': round(self.indicators.tick_speed, 3),  # Added tick metrics
+            'tick_acceleration': round(self.indicators.tick_acceleration, 3),  # Added tick metrics
+            'tick_count': len(self.tick_history),
+            'total_strategies': len(self.strategies)
+        }
         
-        # RSI trend for 3 ticks (simplified as current vs previous)
-        rsi_rising = self.indicators.rsi > self.indicators.rsi_previous
-        rsi_falling = self.indicators.rsi < self.indicators.rsi_previous
+    def register_trade_result(self, strategy_name: str, direction: str, result: bool, profit: float):
+        """Register trade result for performance tracking and risk management"""
+        # Update consecutive loss counter for risk management
+        if not result:
+            self.consecutive_losses += 1
+            print(f"⚠️ Consecutive losses: {self.consecutive_losses}/{self.max_consecutive_losses}")
+        else:
+            # Reset consecutive losses on a win
+            self.consecutive_losses = 0
         
-        # MACD > 0.2 or < -0.2
-        macd_strong = abs(self.indicators.macd) > 0.2
-        macd_up = self.indicators.macd > 0.2
-        macd_down = self.indicators.macd < -0.2
+        # Record result for parameter optimization
+        # Get current strategy parameters (simplified example)
+        params = {
+            'macd_fast': 12,
+            'macd_slow': 26,
+            'macd_signal': 9,
+            'rsi_period': 7,
+            'bb_period': 20,
+            'bb_dev': 2
+        }
         
-        # 3 of last 4 ticks in same direction
-        last_4_ticks = [tick.color for tick in list(self.tick_history)[-4:]]
-        green_count = last_4_ticks.count('green')
-        red_count = last_4_ticks.count('red')
-        
-        if rsi_rising and macd_up and green_count >= 3:
-            conditions_met.extend(["RSI rising", "MACD strong up", "3/4 green ticks"])
-            return TradeSignal(
-                strategy_name=self.strategies[20],
-                direction='CALL',
-                confidence=0.85,
-                hold_time=10,
-                entry_reason="Triple confirmation bullish alignment",
-                conditions_met=conditions_met
-            )
-            
-        elif rsi_falling and macd_down and red_count >= 3:
-            conditions_met.extend(["RSI falling", "MACD strong down", "3/4 red ticks"])
-            return TradeSignal(
-                strategy_name=self.strategies[20],
-                direction='PUT',
-                confidence=0.85,
-                hold_time=10,
-                entry_reason="Triple confirmation bearish alignment",
-                conditions_met=conditions_met
-            )
-            
-        return None
-        
-    def _strategy_21(self) -> Optional[TradeSignal]:
-        """Tick Trap Reversal - Spot overextended micro-trend and reverse"""
-        if len(self.tick_history) < 6:
-            return None
-            
-        conditions_met = []
-        
-        # Check for 5 same-colored ticks in a row
-        last_6_ticks = [tick.color for tick in list(self.tick_history)[-6:]]
-        last_5_ticks = last_6_ticks[:-1]
-        current_tick = last_6_ticks[-1]
-        
-        # RSI near overbought/oversold
-        rsi_overbought = self.indicators.rsi > 65
-        rsi_oversold = self.indicators.rsi < 35
-        
-        if (all(color == 'green' for color in last_5_ticks) and 
-            current_tick == 'red' and rsi_overbought):
-            conditions_met.extend(["5 green ticks", "Red reversal tick", "RSI overbought"])
-            return TradeSignal(
-                strategy_name=self.strategies[21],
-                direction='PUT',
-                confidence=0.83,
-                hold_time=6,
-                entry_reason="Tick trap reversal from overbought",
-                conditions_met=conditions_met
-            )
-            
-        elif (all(color == 'red' for color in last_5_ticks) and 
-              current_tick == 'green' and rsi_oversold):
-            conditions_met.extend(["5 red ticks", "Green reversal tick", "RSI oversold"])
-            return TradeSignal(
-                strategy_name=self.strategies[21],
-                direction='CALL',
-                confidence=0.83,
-                hold_time=6,
-                entry_reason="Tick trap reversal from oversold",
-                conditions_met=conditions_met
-            )
-            
-        return None
-        
-    def _strategy_22(self) -> Optional[TradeSignal]:
-        """Bollinger Bounce Magnet - Rebound from Bollinger outer band"""
-        if len(self.tick_history) < 3:
-            return None
-            
-        conditions_met = []
-        
-        current_price = self.tick_history[-1].price
-        current_tick = self.tick_history[-1].color
-        
-        # Price touches outer Bollinger Band
-        touches_upper = current_price >= self.indicators.bb_upper
-        touches_lower = current_price <= self.indicators.bb_lower
-        
-        # RSI between 45-55
-        rsi_neutral = 45 <= self.indicators.rsi <= 55
-        if rsi_neutral:
-            conditions_met.append("RSI neutral (45-55)")
-        
-        if touches_lower and current_tick == 'green' and rsi_neutral:
-            conditions_met.extend(["Price touches lower BB", "Green confirmation tick"])
-            return TradeSignal(
-                strategy_name=self.strategies[22],
-                direction='CALL',
-                confidence=0.79,
-                hold_time=5,
-                entry_reason="Bollinger bounce from lower band",
-                conditions_met=conditions_met
-            )
-            
-        elif touches_upper and current_tick == 'red' and rsi_neutral:
-            conditions_met.extend(["Price touches upper BB", "Red confirmation tick"])
-            return TradeSignal(
-                strategy_name=self.strategies[22],
-                direction='PUT',
-                confidence=0.79,
-                hold_time=5,
-                entry_reason="Bollinger bounce from upper band",
-                conditions_met=conditions_met
-            )
-            
-        return None
-        
-    def _strategy_23(self) -> Optional[TradeSignal]:
-        """EMA Compression Breakout - Play EMA squeeze breakout"""
-        if len(self.tick_history) < 3:
-            return None
-            
-        conditions_met = []
-        
-        # EMA(3) and EMA(5) converge tightly
-        ema_convergence = abs(self.indicators.ema3 - self.indicators.ema5) / self.indicators.ema5 < 0.001  # 0.1% difference
-        if ema_convergence:
-            conditions_met.append("EMA3 and EMA5 converged")
-            
-        # Check for sudden expansion + 2 ticks same color
-        last_2_ticks = [tick.color for tick in list(self.tick_history)[-2:]]
-        
-        current_price = self.tick_history[-1].price
-        price_above_ema = current_price > self.indicators.ema5
-        price_below_ema = current_price < self.indicators.ema5
-        
-        if (ema_convergence and all(color == 'green' for color in last_2_ticks) and 
-            price_above_ema):
-            conditions_met.extend(["2 green ticks", "Price above EMA5"])
-            return TradeSignal(
-                strategy_name=self.strategies[23],
-                direction='CALL',
-                confidence=0.81,
-                hold_time=6,
-                entry_reason="EMA compression breakout upward",
-                conditions_met=conditions_met
-            )
-            
-        elif (ema_convergence and all(color == 'red' for color in last_2_ticks) and 
-              price_below_ema):
-            conditions_met.extend(["2 red ticks", "Price below EMA5"])
-            return TradeSignal(
-                strategy_name=self.strategies[23],
-                direction='PUT',
-                confidence=0.81,
-                hold_time=6,
-                entry_reason="EMA compression breakout downward",
-                conditions_met=conditions_met
-            )
-            
-        return None
-        
-    def _strategy_24(self) -> Optional[TradeSignal]:
-        """Tick RSI Bounce - RSI bounce from 30/70 zone with tick confirmation"""
-        if len(self.tick_history) < 2:
-            return None
-            
-        conditions_met = []
-        
-        # RSI < 30 or > 70
-        rsi_extreme = self.indicators.rsi < 30 or self.indicators.rsi > 70
-        
-        # First tick back toward center
-        current_tick = self.tick_history[-1].color
-        
-        if self.indicators.rsi < 30 and current_tick == 'green':
-            conditions_met.extend(["RSI oversold (<30)", "Green reversal tick"])
-            return TradeSignal(
-                strategy_name=self.strategies[24],
-                direction='CALL',
-                confidence=0.8,
-                hold_time=5,
-                entry_reason="RSI bounce from oversold with green tick",
-                conditions_met=conditions_met
-            )
-            
-        elif self.indicators.rsi > 70 and current_tick == 'red':
-            conditions_met.extend(["RSI overbought (>70)", "Red reversal tick"])
-            return TradeSignal(
-                strategy_name=self.strategies[24],
-                direction='PUT',
-                confidence=0.8,
-                hold_time=5,
-                entry_reason="RSI bounce from overbought with red tick",
-                conditions_met=conditions_met
-            )
-            
-        return None
-        
-    def _strategy_25(self) -> Optional[TradeSignal]:
-        """Tick Pulse Sync - Match pulse of momentum + tick velocity"""
-        if len(self.tick_history) < 3:
-            return None
-            
-        conditions_met = []
-        
-        # 3 green/red ticks
-        last_3_ticks = [tick.color for tick in list(self.tick_history)[-3:]]
-        all_green = all(color == 'green' for color in last_3_ticks)
-        all_red = all(color == 'red' for color in last_3_ticks)
-        
-        # Momentum > 0.2%
-        strong_momentum = abs(self.indicators.momentum) > 0.2
-        if strong_momentum:
-            conditions_met.append(f"Strong momentum ({self.indicators.momentum:.2f}%)")
-            
-        # RSI rising/falling
-        rsi_rising = self.indicators.rsi > self.indicators.rsi_previous
-        rsi_falling = self.indicators.rsi < self.indicators.rsi_previous
-        
-        if all_green and self.indicators.momentum > 0.2 and rsi_rising:
-            conditions_met.extend(["3 green ticks", "RSI rising"])
-            return TradeSignal(
-                strategy_name=self.strategies[25],
-                direction='CALL',
-                confidence=0.82,
-                hold_time=7,
-                entry_reason="Bullish tick pulse sync",
-                conditions_met=conditions_met
-            )
-            
-        elif all_red and self.indicators.momentum < -0.2 and rsi_falling:
-            conditions_met.extend(["3 red ticks", "RSI falling"])
-            return TradeSignal(
-                strategy_name=self.strategies[25],
-                direction='PUT',
-                confidence=0.82,
-                hold_time=7,
-                entry_reason="Bearish tick pulse sync",
-                conditions_met=conditions_met
-            )
-            
-        return None
-        
-    def _strategy_26(self) -> Optional[TradeSignal]:
-        """EMA Magnet Pullback - Snapback toward EMA(3)"""
-        if len(self.tick_history) < 2:
-            return None
-            
-        conditions_met = []
-        
-        current_price = self.tick_history[-1].price
-        current_tick = self.tick_history[-1].color
-        
-        # Price > 1% from EMA(3)
-        price_distance = abs(current_price - self.indicators.ema3) / self.indicators.ema3
-        far_from_ema = price_distance > 0.01  # 1%
-        
-        if far_from_ema:
-            conditions_met.append(f"Price {price_distance*100:.1f}% from EMA3")
-            
-        # Check if tick direction reverses toward EMA
-        price_above_ema = current_price > self.indicators.ema3
-        price_below_ema = current_price < self.indicators.ema3
-        
-        if price_above_ema and current_tick == 'red' and far_from_ema:
-            conditions_met.extend(["Price above EMA3", "Red tick toward EMA"])
-            return TradeSignal(
-                strategy_name=self.strategies[26],
-                direction='PUT',
-                confidence=0.77,
-                hold_time=5,
-                entry_reason="EMA magnet pullback from above",
-                conditions_met=conditions_met
-            )
-            
-        elif price_below_ema and current_tick == 'green' and far_from_ema:
-            conditions_met.extend(["Price below EMA3", "Green tick toward EMA"])
-            return TradeSignal(
-                strategy_name=self.strategies[26],
-                direction='CALL',
-                confidence=0.77,
-                hold_time=5,
-                entry_reason="EMA magnet pullback from below",
-                conditions_met=conditions_met
-            )
-            
-        return None
-        
-    def _strategy_27(self) -> Optional[TradeSignal]:
-        """RSI Mirror Flip - Mirror RSI direction after exhaustion"""
-        if len(self.tick_history) < 2:
-            return None
-            
-        conditions_met = []
-        
-        # RSI hits 70 then drops 5+ pts
-        rsi_dropped_from_high = (self.indicators.rsi_previous >= 70 and 
-                                 self.indicators.rsi < self.indicators.rsi_previous - 5)
-        
-        # RSI hits 30 then rises 5+ pts  
-        rsi_rose_from_low = (self.indicators.rsi_previous <= 30 and 
-                            self.indicators.rsi > self.indicators.rsi_previous + 5)
-        
-        last_2_ticks = [tick.color for tick in list(self.tick_history)[-2:]]
-        
-        if rsi_dropped_from_high and all(color == 'red' for color in last_2_ticks):
-            conditions_met.extend(["RSI dropped 5+ from 70", "2 red ticks"])
-            return TradeSignal(
-                strategy_name=self.strategies[27],
-                direction='PUT',
-                confidence=0.84,
-                hold_time=6,
-                entry_reason="RSI mirror flip from overbought",
-                conditions_met=conditions_met
-            )
-            
-        elif rsi_rose_from_low and all(color == 'green' for color in last_2_ticks):
-            conditions_met.extend(["RSI rose 5+ from 30", "2 green ticks"])
-            return TradeSignal(
-                strategy_name=self.strategies[27],
-                direction='CALL',
-                confidence=0.84,
-                hold_time=6,
-                entry_reason="RSI mirror flip from oversold",
-                conditions_met=conditions_met
-            )
-            
-        return None
-        
-    def _strategy_28(self) -> Optional[TradeSignal]:
-        """MACD Crossover Trigger - Entry on real-time MACD crossover"""
-        if len(self.tick_history) < 3:
-            return None
-            
-        conditions_met = []
-        
-        # MACD crosses signal line (simplified detection)
-        macd_bullish_cross = (self.indicators.macd > self.indicators.macd_signal and 
-                             abs(self.indicators.macd - self.indicators.macd_signal) > 0.02)
-        macd_bearish_cross = (self.indicators.macd < self.indicators.macd_signal and 
-                             abs(self.indicators.macd - self.indicators.macd_signal) > 0.02)
-        
-        # Confirm with 2 ticks in same direction
-        last_2_ticks = [tick.color for tick in list(self.tick_history)[-2:]]
-        
-        if macd_bullish_cross and all(color == 'green' for color in last_2_ticks):
-            conditions_met.extend(["MACD bullish crossover", "2 green confirmation ticks"])
-            return TradeSignal(
-                strategy_name=self.strategies[28],
-                direction='CALL',
-                confidence=0.83,
-                hold_time=8,
-                entry_reason="MACD crossover bullish trigger",
-                conditions_met=conditions_met
-            )
-            
-        elif macd_bearish_cross and all(color == 'red' for color in last_2_ticks):
-            conditions_met.extend(["MACD bearish crossover", "2 red confirmation ticks"])
-            return TradeSignal(
-                strategy_name=self.strategies[28],
-                direction='PUT',
-                confidence=0.83,
-                hold_time=8,
-                entry_reason="MACD crossover bearish trigger",
-                conditions_met=conditions_met
-            )
-            
-        return None
-        
-    def _strategy_29(self) -> Optional[TradeSignal]:
-        """Volatility Expansion Ride - Ride spike as volatility expands"""
-        if len(self.tick_history) < 3:
-            return None
-            
-        conditions_met = []
-        
-        # Volatility > 1.8%
-        high_vol = self.indicators.volatility > 1.8
-        if high_vol:
-            conditions_met.append(f"High volatility ({self.indicators.volatility:.2f}%)")
-            
-        # 3 consecutive large tick bodies (simplified as same color)
-        last_3_ticks = [tick.color for tick in list(self.tick_history)[-3:]]
+        # Pass to optimizer
+        self.optimizer.record_trade_result(strategy_name, params, result, profit)
+    
+    # ... other existing methods ...
         consistent_direction = (all(color == 'green' for color in last_3_ticks) or 
                                all(color == 'red' for color in last_3_ticks))
         
