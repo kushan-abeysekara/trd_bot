@@ -377,19 +377,34 @@ def get_stats():
 
 @app.route('/api/trade-history', methods=['GET'])
 def get_trade_history():
-    """Get trade history"""
+    """Get trade history with forced refresh"""
     global bot_instance, latest_trades
     
     if not bot_instance:
         return jsonify({'error': 'Not connected to API'}), 400
         
     try:
-        # Always fetch fresh, verified trade history directly from the bot
-        latest_trades = bot_instance.get_trade_history()
+        # FORCE refresh trade history directly from bot
+        fresh_trades = bot_instance.get_trade_history()
+        latest_trades = fresh_trades  # Update global cache
+        
+        # Debug information
+        active_trades = [t for t in fresh_trades if t.get('status') == 'active']
+        completed_trades = [t for t in fresh_trades if t.get('status') == 'completed']
+        
         return jsonify({
-            'trades': latest_trades,
+            'trades': fresh_trades,
+            'total_count': len(fresh_trades),
+            'active_count': len(active_trades),
+            'completed_count': len(completed_trades),
+            'debug_info': {
+                'last_5_trades': fresh_trades[:5] if fresh_trades else [],
+                'active_trade_ids': [t.get('id') for t in active_trades],
+                'completed_trade_ids': [t.get('id') for t in completed_trades]
+            },
             'verification_errors': getattr(bot_instance, 'verification_errors', 0),
-            'verified': True
+            'verified': True,
+            'timestamp': time.time()
         }), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -661,17 +676,30 @@ def get_updates():
     is_trading = bot_instance and bot_instance.is_running if bot_instance else False
     initial_balance = getattr(bot_instance, 'initial_balance', 0) if bot_instance else 0
     
+    # FORCE REFRESH trade history to get latest status
+    if bot_instance:
+        fresh_trades = bot_instance.get_trade_history()
+        # Update latest_trades if we got fresh data
+        if fresh_trades:
+            latest_trades = fresh_trades
+    
     return jsonify({
         'connected': is_connected,
         'trading': is_trading,
         'balance': latest_balance,
         'initial_balance': initial_balance,
         'stats': latest_stats,
-        'recent_trades': latest_trades[:5] if latest_trades else [],
+        'recent_trades': latest_trades[:10] if latest_trades else [],  # Return more trades for better visibility
+        'trade_history_full': latest_trades,  # Include full history for debugging
         'indicators': latest_indicators,
         'session_stats': latest_session_stats,
         'latest_signal': latest_strategy_signal,
-        'timestamp': time.time()
+        'timestamp': time.time(),
+        'trade_count_debug': {
+            'total': len(latest_trades) if latest_trades else 0,
+            'active': len([t for t in latest_trades if t.get('status') == 'active']) if latest_trades else 0,
+            'completed': len([t for t in latest_trades if t.get('status') == 'completed']) if latest_trades else 0
+        }
     }), 200
 
 

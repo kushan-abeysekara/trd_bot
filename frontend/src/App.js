@@ -169,8 +169,12 @@ function App() {
         // Update other states
         setStats(data.stats || stats);
         
-        // Update trade history if there are new trades
-        if (data.recent_trades && data.recent_trades.length > 0) {
+        // FORCE update trade history from full data
+        if (data.trade_history_full && data.trade_history_full.length >= 0) {
+          setTradeHistory(data.trade_history_full);
+        }
+        // Fallback to recent trades if full history not available
+        else if (data.recent_trades && data.recent_trades.length > 0) {
           updateTradeHistory(data.recent_trades);
         }
         
@@ -200,19 +204,34 @@ function App() {
         if (data.balance && initialBalanceRef.current > 0) {
           const calculatedProfit = data.balance - initialBalanceRef.current;
           setRealProfit(calculatedProfit);
-          console.log("Real profit calculated:", calculatedProfit);
+        }
+        
+        // Debug trade status counts
+        if (data.trade_count_debug) {
+          console.log(`📊 Trade Status: ${data.trade_count_debug.active} active, ${data.trade_count_debug.completed} completed`);
         }
         
       } catch (error) {
         console.error('Polling error:', error);
+        
+        // On polling error, try to refresh trade history separately
+        try {
+          const tradeResponse = await axios.get('/api/trade-history');
+          if (tradeResponse.data.trades) {
+            setTradeHistory(tradeResponse.data.trades);
+            console.log('✅ Trade history refreshed after polling error');
+          }
+        } catch (tradeError) {
+          console.error('Trade history refresh error:', tradeError);
+        }
       }
     };
     
     // Initial fetch
     fetchUpdates();
     
-    // Setup polling interval
-    pollingRef.current = setInterval(fetchUpdates, POLLING_INTERVAL);
+    // Setup polling interval - increased frequency for better trade updates
+    pollingRef.current = setInterval(fetchUpdates, 1500); // 1.5 seconds
   };
 
   // Stop polling
@@ -237,7 +256,13 @@ function App() {
   const fetchTradeHistory = async () => {
     try {
       const response = await axios.get('/api/trade-history');
-      setTradeHistory(response.data.trades || []);
+      if (response.data.trades) {
+        setTradeHistory(response.data.trades);
+        
+        // Debug log
+        const { active_count, completed_count, total_count } = response.data;
+        console.log(`📋 Trade History: ${total_count} total (${active_count} active, ${completed_count} completed)`);
+      }
     } catch (error) {
       console.error('Error fetching trade history:', error);
     }
@@ -316,24 +341,36 @@ function App() {
     }
   };
 
-  // Update trade history
+  // Update trade history with better handling of completed trades
   const updateTradeHistory = (newTrades) => {
     setTradeHistory(prev => {
-      const updated = [...prev];
-      
-      // Add any new trades
-      for (const trade of newTrades) {
-        const existingIndex = updated.findIndex(t => t.id === trade.id);
+      // If we receive a single trade update
+      if (!Array.isArray(newTrades)) {
+        const singleTrade = newTrades;
+        const updated = [...prev];
+        
+        // Find and update existing trade or add new one
+        const existingIndex = updated.findIndex(t => t.id === singleTrade.id);
         if (existingIndex >= 0) {
-          // Update existing trade
-          updated[existingIndex] = trade;
+          // Update existing trade - preserve all data
+          updated[existingIndex] = { ...updated[existingIndex], ...singleTrade };
+          console.log(`🔄 Updated trade ${singleTrade.id} status: ${singleTrade.status}`);
         } else {
-          // Add new trade
-          updated.unshift(trade);
+          // Add new trade at beginning
+          updated.unshift(singleTrade);
+          console.log(`➕ Added new trade ${singleTrade.id} status: ${singleTrade.status}`);
         }
+        
+        return updated;
       }
       
-      return updated;
+      // If we receive an array of trades (full refresh)
+      if (Array.isArray(newTrades) && newTrades.length > 0) {
+        console.log(`📋 Full trade history refresh: ${newTrades.length} trades`);
+        return newTrades;
+      }
+      
+      return prev;
     });
   };
 
@@ -504,6 +541,26 @@ function App() {
       }, 3000);
     } catch (error) {
       setMessage(error.response?.data?.error || 'Failed to refresh balance');
+      setMessageType('error');
+    }
+  };
+
+  // Add a manual refresh button function
+  const handleRefreshTrades = async () => {
+    setMessage('Refreshing trade history...');
+    setMessageType('info');
+    
+    try {
+      await fetchTradeHistory();
+      setMessage('Trade history refreshed successfully');
+      setMessageType('success');
+      
+      // Clear message after 3 seconds
+      setTimeout(() => {
+        setMessage('');
+      }, 3000);
+    } catch (error) {
+      setMessage('Failed to refresh trade history');
       setMessageType('error');
     }
   };
@@ -888,7 +945,17 @@ function App() {
       )}
 
       <div className="card trade-history">
-        <h2>Trade History</h2>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+          <h2>Trade History</h2>
+          <button 
+            className="btn btn-secondary btn-small"
+            onClick={handleRefreshTrades}
+            style={{ fontSize: '0.8rem', padding: '5px 10px' }}
+            title="Refresh trade history"
+          >
+            🔄 Refresh
+          </button>
+        </div>
         
         {tradeHistory.length === 0 ? (
           <p style={{ textAlign: 'center', color: '#666', marginTop: '20px' }}>
@@ -918,13 +985,22 @@ function App() {
                   {trade.entry_reason && (
                     <div className="entry-reason">{trade.entry_reason}</div>
                   )}
+                  {/* Debug info for trade status */}
+                  {trade.completed_at && (
+                    <div className="completion-info" style={{ fontSize: '0.8rem', color: '#666' }}>
+                      Completed: {formatTime(trade.completed_at)}
+                    </div>
+                  )}
                 </div>
                 
                 <div className="trade-result">
-                  <div className={`trade-status status-${trade.result || 'active'}`}>
-                    {trade.status === 'active' ? 'ACTIVE' : (trade.result === 'win' ? 'WIN' : 'LOSS')}
+                  <div className={`trade-status status-${trade.status || 'unknown'}`}>
+                    {trade.status === 'active' ? '⏳ ACTIVE' : 
+                     trade.status === 'completed' ? 
+                       (trade.result === 'win' ? '✅ WIN' : '❌ LOSS') : 
+                       '❓ UNKNOWN'}
                   </div>
-                  {trade.profit_loss !== undefined && (
+                  {trade.profit_loss !== undefined && trade.status === 'completed' && (
                     <div className={`profit-loss ${trade.profit_loss >= 0 ? 'profit' : 'loss'}`}>
                       {trade.profit_loss >= 0 ? '+' : ''}{formatCurrency(trade.profit_loss)}
                     </div>
@@ -932,6 +1008,12 @@ function App() {
                   {trade.actual_win_probability !== undefined && (
                     <div className="win-probability">
                       {(trade.actual_win_probability * 100).toFixed(0)}% win chance
+                    </div>
+                  )}
+                  {/* Show outcome source for debugging */}
+                  {trade.outcome_source && (
+                    <div className="outcome-source" style={{ fontSize: '0.7rem', color: '#888' }}>
+                      {trade.outcome_source === 'deriv_api' ? '🔗 Real' : '🔄 Sim'}
                     </div>
                   )}
                 </div>
