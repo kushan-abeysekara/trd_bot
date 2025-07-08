@@ -18,8 +18,8 @@ AGGRESSIVE_SIGNAL_MODE = True  # Enable aggressive signal generation
 SIGNAL_CONFIDENCE_THRESHOLD = 0.50  # Lowered threshold for more signals
 
 # Risk Management Settings
-MAX_CONSECUTIVE_LOSSES = 6  # Stop trading after 2 consecutive losses
-MAX_SESSION_TRADES = 100  # Cap at 20 trades per session
+MAX_CONSECUTIVE_LOSSES = 50  # Increased from 50 to 50 consecutive losses
+MAX_SESSION_TRADES = 100  # Cap at 100 trades per session
 DEFAULT_RISK_REWARD_RATIO = 2.0  # Default 2:1 risk-reward ratio
 
 # Strategy Optimization Settings

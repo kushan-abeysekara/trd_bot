@@ -352,8 +352,14 @@ function App() {
         // Find and update existing trade or add new one
         const existingIndex = updated.findIndex(t => t.id === singleTrade.id);
         if (existingIndex >= 0) {
-          // Update existing trade - preserve all data
+          // Update existing trade - preserve all data but ensure status update is applied
           updated[existingIndex] = { ...updated[existingIndex], ...singleTrade };
+          
+          // IMPORTANT FIX: Force explicit status logging for debugging
+          if (singleTrade.status === 'completed' && updated[existingIndex].status === 'completed') {
+            console.log(`✅ Trade ${singleTrade.id} marked COMPLETED with result: ${singleTrade.result}, P&L: ${singleTrade.profit_loss}`);
+          }
+          
           console.log(`🔄 Updated trade ${singleTrade.id} status: ${singleTrade.status}`);
         } else {
           // Add new trade at beginning
@@ -366,7 +372,11 @@ function App() {
       
       // If we receive an array of trades (full refresh)
       if (Array.isArray(newTrades) && newTrades.length > 0) {
-        console.log(`📋 Full trade history refresh: ${newTrades.length} trades`);
+        // IMPORTANT FIX: Log trade statuses to help diagnose issues
+        const activeCount = newTrades.filter(t => t.status === 'active').length;
+        const completedCount = newTrades.filter(t => t.status === 'completed').length;
+        
+        console.log(`📋 Full trade history refresh: ${newTrades.length} trades (${activeCount} active, ${completedCount} completed)`);
         return newTrades;
       }
       

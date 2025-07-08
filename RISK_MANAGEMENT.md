@@ -18,7 +18,7 @@ You can disable this limit by setting it to 0 (unlimited trades).
 
 ### 2. Maximum Consecutive Losses
 
-**Default: 5 trades**
+**Default: 50 trades**
 
 Stops trading after a specified number of consecutive losing trades. This helps prevent continued trading during unfavorable market conditions.
 
@@ -44,7 +44,7 @@ You can adjust risk limits through the bot's interface or by modifying the setti
 # Example
 bot.set_risk_limits(
     max_trades=100,      # Maximum 100 trades per session
-    max_losses=3,        # Stop after 3 consecutive losses
+    max_losses=50,       # Stop after 50 consecutive losses
     max_daily_loss=50,   # Stop if daily losses exceed $50
     cooling_period=15,   # Wait 15 minutes after hitting limits
     enabled=True         # Enable/disable all risk management
@@ -82,10 +82,10 @@ bot.reset_risk_management(full_reset=True)
 
 The optimal risk settings depend on your trading strategy, account size, and risk tolerance. Here are some general recommendations:
 
-- **Conservative**: Max 30 trades, 3 consecutive losses, $20 daily loss, 30 min cooling
-- **Moderate**: Max 70 trades, 5 consecutive losses, $50 daily loss, 15 min cooling
-- **Aggressive**: Max 150 trades, 8 consecutive losses, $100 daily loss, 5 min cooling
-- **Professional**: Unlimited trades (0), 10 consecutive losses, $200 daily loss, no cooling
+- **Conservative**: Max 30 trades, 6 consecutive losses, $20 daily loss, 30 min cooling
+- **Moderate**: Max 70 trades, 10 consecutive losses, $50 daily loss, 15 min cooling
+- **Aggressive**: Max 150 trades, 15 consecutive losses, $100 daily loss, 5 min cooling
+- **Professional**: Unlimited trades (0), 20 consecutive losses, $200 daily loss, no cooling
 
 ## Monitoring Risk Status
 

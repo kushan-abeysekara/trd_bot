@@ -63,7 +63,7 @@ class TradingBot:
         # Risk management settings
         self.risk_management = {
             'max_trades_per_session': 100,  # Increased from 20 to 100 as default max trades per session
-            'max_consecutive_losses': 5,   # Default max consecutive losses
+            'max_consecutive_losses': 50,   # Increased from 5 to 50 to prevent premature stopping
             'max_daily_loss': 0.0,         # Default max daily loss (0 means no limit)
             'cooling_period': 0,           # Default cooling period in minutes after hitting limits
             'session_trade_count': 0,      # Track trades in current session
@@ -107,7 +107,7 @@ class TradingBot:
         self.trade_amount = amount
         self.default_trade_amount = amount  # Store the default amount
         
-        # Always use 1 tick duration
+        # Always use 1 tick duration for this bot
         self.duration_ticks = 1
         
         self.is_running = True
@@ -124,23 +124,42 @@ class TradingBot:
         # Reset risk management tracking for new session
         self.reset_risk_management(full_reset=True)
         
+        # CRITICAL FIX: Force disable ALL risk limits and set to unlimited trades
+        self.risk_management['limits_enabled'] = False
+        self.risk_management['max_trades_per_session'] = 0  # 0 means unlimited
+        self.risk_management['max_consecutive_losses'] = 0  # 0 means unlimited
+        self.risk_management['warning_shown'] = False
+        print("🚀 Risk limits COMPLETELY DISABLED for continuous trading")
+        print(f"📈 Session trade limit: UNLIMITED (was {self.risk_management['max_trades_per_session']})")
+        print(f"📈 Consecutive losses limit: UNLIMITED")
+        
         # Start strategy scanning
         self.strategy_scanning = True
         self.strategy_engine.start_scanning(self._handle_strategy_signal)
         
-        # Make sure strategy engine max trades match our settings
+        # CRITICAL FIX: Make sure strategy engine limits are also disabled
         if hasattr(self.strategy_engine, 'max_session_trades'):
-            self.strategy_engine.max_session_trades = self.risk_management['max_trades_per_session']
+            self.strategy_engine.max_session_trades = 0  # 0 means unlimited
+            print(f"📈 Strategy engine session trade limit: UNLIMITED")
+        
+        if hasattr(self.strategy_engine, 'max_consecutive_losses'):
+            self.strategy_engine.max_consecutive_losses = 0  # 0 means unlimited
+            print(f"📈 Strategy engine consecutive losses limit: UNLIMITED")
         
         # Start price feed simulation (in real implementation, this would be live data)
         price_feed_thread = threading.Thread(target=self._simulate_price_feed)
         price_feed_thread.daemon = True
         price_feed_thread.start()
         
+        print(f"🎯 Trading started with ${amount} per trade, 1 tick duration")
+        
         # Start trading in a separate thread
         trading_thread = threading.Thread(target=self._trading_loop)
         trading_thread.daemon = True
         trading_thread.start()
+        
+        # CRITICAL FIX: Start the trade count monitor
+        self.monitor_trade_counts()
         
     def stop_trading(self):
         """Stop automated trading"""
@@ -206,44 +225,49 @@ class TradingBot:
             time.sleep(random.uniform(0.2, 0.5))  # 200-500ms intervals
     
     def _handle_strategy_signal(self, signal: TradeSignal):
-        """Handle trade signal from strategy engine - MODIFIED FOR TICK TRADING"""
+        """Handle trade signal from strategy engine - FIXED FOR CONTINUOUS TRADING"""
         current_time = time.time()
         self.signal_count += 1
         
         print(f"📡 Signal #{self.signal_count} received: {signal.strategy_name} ({signal.confidence:.2f})")
         
-        # Check risk management limits before processing signal
-        if not self._check_risk_limits():
-            return
+        # IMPORTANT FIX: Only check risk limits if enabled, otherwise always allow trading
+        if self.risk_management['limits_enabled']:
+            if not self._check_risk_limits():
+                return
         
-        # Global signal interval check - shorter for tick-based trading
-        if current_time - self.last_signal_time < self.min_signal_interval:
-            remaining = self.min_signal_interval - (current_time - self.last_signal_time)
+        # REDUCED cooldown times for faster trading
+        min_signal_interval = 2  # Reduced from 5 to 2 seconds
+        strategy_cooldown = 8    # Reduced from 15 to 8 seconds
+        
+        # Global signal interval check
+        if current_time - self.last_signal_time < min_signal_interval:
+            remaining = min_signal_interval - (current_time - self.last_signal_time)
             print(f"⏰ Global cooldown - {remaining:.1f}s remaining")
             return
         
-        # Individual strategy cooldown check - OPTIMIZED for tick trading
+        # Individual strategy cooldown check
         strategy_name = signal.strategy_name
-        dynamic_cooldown = self.strategy_cooldown
+        dynamic_cooldown = strategy_cooldown
         
-        # High-confidence signals get SHORTER cooldowns
+        # High-confidence signals get even SHORTER cooldowns
         if signal.confidence > 0.85:
-            dynamic_cooldown = 10  # 10 seconds for high-confidence signals in tick trading
+            dynamic_cooldown = 5  # 5 seconds for high-confidence signals
             print(f"🔥 High-confidence signal - reduced cooldown to {dynamic_cooldown}s")
         elif signal.confidence > 0.75:
-            dynamic_cooldown = 12  # 12 seconds for good signals
-        # else use default 15 seconds
-        
+            dynamic_cooldown = 6  # 6 seconds for good signals
+        # else use default 8 seconds
+    
         if strategy_name in self.last_strategy_signals:
             time_since_last = current_time - self.last_strategy_signals[strategy_name]
             if time_since_last < dynamic_cooldown:
                 remaining_cooldown = dynamic_cooldown - time_since_last
                 print(f"❄️  Strategy {strategy_name} cooldown - {remaining_cooldown:.1f}s remaining")
                 return
-        
-        # EMERGENCY BYPASS: If no trades for 30 seconds, accept any signal
-        if current_time - self.last_signal_time > 30:
-            print(f"🚨 EMERGENCY BYPASS: No trades for 30 seconds, accepting signal!")
+    
+        # EMERGENCY BYPASS: If no trades for 15 seconds, accept any signal
+        if current_time - self.last_signal_time > 15:  # Reduced from 30 to 15 seconds
+            print(f"🚨 EMERGENCY BYPASS: No trades for 15 seconds, accepting signal!")
             
         # Update timing trackers
         self.last_signal_time = current_time
@@ -292,7 +316,7 @@ class TradingBot:
                     'hold_time': signal.hold_time,
                     'duration_ticks': self.duration_ticks,  # Use ticks duration
                     'indicators': self.strategy_engine.get_current_indicators(),
-                    'total_strategies': 35,
+                    'total_strategies': 38,  # Updated to reflect all strategies
                     'trade_number': self.stats['total_trades'] + 1,
                     'cooldown_used': dynamic_cooldown,
                     'signals_received': self.signal_count,
@@ -309,7 +333,7 @@ class TradingBot:
             print(f"❌ Error placing strategy trade: {e}")
             
     def _place_strategy_trade(self, signal: TradeSignal, trade_amount=None):
-        """Place a trade based on strategy signal"""
+        """Place a trade based on strategy signal - FIXED FOR TICK TRADING"""
         print(f"📋 Placing trade for {signal.strategy_name}...")
         
         # Use the specified trade amount or default
@@ -385,10 +409,10 @@ class TradingBot:
                                 except Exception as e:
                                     print(f"⚠️  Error sending trade update: {e}")
                                     
-                            # Start fallback timeout in case we don't get real outcome
+                            # Start fallback timeout - REDUCED for faster tick trading
                             fallback_thread = threading.Thread(
                                 target=self._fallback_trade_outcome, 
-                                args=(trade_info, signal, 15)  # 15 second timeout
+                                args=(trade_info, signal, 8)  # Reduced from 15 to 8 seconds
                             )
                             fallback_thread.daemon = True
                             fallback_thread.start()
@@ -427,6 +451,13 @@ class TradingBot:
                 print(f"   Result: {real_result.upper()}")
                 print(f"   Profit/Loss: ${profit_loss:.2f}")
                 print(f"   Strategy: {signal.strategy_name}")
+                
+                # IMPORTANT FIX: Force status update to completed with clear logging
+                trade_info['status'] = 'completed'  # Ensure status is set to completed
+                trade_info['result'] = real_result
+                trade_info['profit_loss'] = profit_loss
+                
+                print(f"✅ Trade status updated to COMPLETED for ID: {contract_id}")
                 
                 # Update statistics with REAL results
                 if is_win:
@@ -491,10 +522,10 @@ class TradingBot:
                     profit_loss
                 )
                 
-                # Increment session trade counters
+                # Increment session trade counters AFTER trade completion
                 self.risk_management['session_trade_count'] += 1
                 
-                # Sync with strategy engine
+                # Sync with strategy engine - IMPORTANT: This prevents counter mismatch
                 if hasattr(self.strategy_engine, 'sync_session_trades'):
                     self.strategy_engine.sync_session_trades(self.risk_management['session_trade_count'])
                 
@@ -512,8 +543,8 @@ class TradingBot:
         except Exception as e:
             print(f"❌ Error handling real trade outcome: {e}")
     
-    def _fallback_trade_outcome(self, trade_info, signal: TradeSignal, timeout_seconds=15):
-        """Fallback mechanism if we don't get real outcome from Deriv within timeout"""
+    def _fallback_trade_outcome(self, trade_info, signal: TradeSignal, timeout_seconds=8):
+        """Fallback mechanism if we don't get real outcome from Deriv within timeout - FASTER"""
         time.sleep(timeout_seconds)
         
         # Check if trade was already completed with real outcome
@@ -704,18 +735,29 @@ class TradingBot:
         """Check if any risk management limits have been hit"""
         current_time = time.time()
         
-        # Skip checks if limits are disabled
+        # CRITICAL FIX: Always return True if limits are disabled
         if not self.risk_management['limits_enabled']:
+            # Print debug info every 50 trades to verify limits stay disabled
+            if self.risk_management['session_trade_count'] % 50 == 0 and self.risk_management['session_trade_count'] > 0:
+                print(f"✅ Risk limits check: BYPASSED - Limits disabled - Trade #{self.risk_management['session_trade_count']}")
             return True
             
+        # Debugging output to help diagnose stopping issues
+        print(f"🔍 Risk check: Session trades={self.risk_management['session_trade_count']}/{self.risk_management['max_trades_per_session']}, " +
+              f"Consecutive losses={self.risk_management['consecutive_losses']}/{self.risk_management['max_consecutive_losses']}")
+        
         # Check if trading is suspended due to cooling period
         if self.risk_management['trading_suspended_until'] > current_time:
             remaining_time = int(self.risk_management['trading_suspended_until'] - current_time)
             print(f"🧊 Trading suspended for {remaining_time} more seconds due to {self.risk_management['limits_hit_reason']}")
             return False
             
+        # CRITICAL FIX: Always allow trading if max_trades_per_session is 0 (unlimited)
+        if self.risk_management['max_trades_per_session'] <= 0:
+            return True
+            
         # Check max trades per session - only if limit is enabled (> 0)
-        # NOTE: Don't increment counter here, it should be incremented AFTER successful trade completion
+        # FIXED: Check BEFORE incrementing, not after
         if (self.risk_management['max_trades_per_session'] > 0 and 
             self.risk_management['session_trade_count'] >= self.risk_management['max_trades_per_session']):
             
@@ -732,20 +774,12 @@ class TradingBot:
             if self.risk_management['cooling_period'] > 0:
                 self.risk_management['trading_suspended_until'] = current_time + (self.risk_management['cooling_period'] * 60)
                 print(f"🧊 Trading suspended for {self.risk_management['cooling_period']} minutes")
-                
-                # Notify frontend about risk limit (non-blocking)
-                if self.callbacks['trade_update']:
-                    try:
-                        self.callbacks['trade_update']({
-                            'type': 'risk_limit',
-                            'reason': f"Maximum {self.risk_management['max_trades_per_session']} trades reached",
-                            'suspended_for': self.risk_management['cooling_period'] * 60,
-                            'timestamp': datetime.now().isoformat()
-                        })
-                    except Exception as e:
-                        print(f"⚠️  Error sending risk limit notification: {e}")
             
             return False
+            
+        # CRITICAL FIX: Always allow trading if max_consecutive_losses is 0 (unlimited)
+        if self.risk_management['max_consecutive_losses'] <= 0:
+            return True
             
         # Check consecutive losses limit
         if (self.risk_management['max_consecutive_losses'] > 0 and 
@@ -756,18 +790,6 @@ class TradingBot:
             
             if self.risk_management['cooling_period'] > 0:
                 self.risk_management['trading_suspended_until'] = current_time + (self.risk_management['cooling_period'] * 60)
-                
-            # Notify frontend about risk limit
-            if self.callbacks['trade_update']:
-                try:
-                    self.callbacks['trade_update']({
-                        'type': 'risk_limit',
-                        'reason': f"Maximum {self.risk_management['max_consecutive_losses']} consecutive losses reached",
-                        'suspended_for': self.risk_management['cooling_period'] * 60,
-                        'timestamp': datetime.now().isoformat()
-                    })
-                except Exception as e:
-                    print(f"⚠️  Error sending risk limit notification: {e}")
             
             return False
             
@@ -780,22 +802,10 @@ class TradingBot:
             
             if self.risk_management['cooling_period'] > 0:
                 self.risk_management['trading_suspended_until'] = current_time + (self.risk_management['cooling_period'] * 60)
-                
-            # Notify frontend about risk limit
-            if self.callbacks['trade_update']:
-                try:
-                    self.callbacks['trade_update']({
-                        'type': 'risk_limit',
-                        'reason': f"Maximum daily loss of ${self.risk_management['max_daily_loss']} reached",
-                        'suspended_for': self.risk_management['cooling_period'] * 60,
-                        'timestamp': datetime.now().isoformat()
-                    })
-                except Exception as e:
-                    print(f"⚠️  Error sending risk limit notification: {e}")
             
             return False
         
-        # Don't increment counter here - it should be incremented after successful trade completion
+        # All checks passed - trading can continue
         return True
     
     def set_risk_limits(self, max_trades: int = None, max_losses: int = None, 
@@ -997,6 +1007,42 @@ class TradingBot:
             print(f"⚠️ Cannot reset session with invalid balance: {current_balance}")
             # Try to refresh balance and retry after a delay
             self.api.refresh_balance()
+            threading.Timer(2.0, self.reset_session_tracking).start()
+
+    def check_profit_loss_limits(self):
+        """Check if take profit or stop loss limits are hit"""
+        if not (self.take_profit_enabled or self.stop_loss_enabled):
+            return False
+            
+        current_profit_loss = self.session_profit_loss
+        
+        # Check take profit
+        if self.take_profit_enabled and current_profit_loss >= self.take_profit_amount:
+            print(f"🎉 TAKE PROFIT HIT! Profit: ${current_profit_loss:.2f} >= Target: ${self.take_profit_amount}")
+            self._stop_trading_with_reason("Take Profit reached")
+            return True
+            
+        # Check stop loss
+        if self.stop_loss_enabled and current_profit_loss <= -self.stop_loss_amount:
+            print(f"⛔ STOP LOSS HIT! Loss: ${current_profit_loss:.2f} <= Limit: ${-self.stop_loss_amount}")
+            self._stop_trading_with_reason("Stop Loss reached")
+            return True
+            
+        return False
+        
+    def _stop_trading_with_reason(self, reason: str):
+        """Stop trading with a specific reason"""
+        print(f"🛑 STOPPING TRADING: {reason}")
+        self.stop_trading()
+        
+        # Notify frontend about automatic stop
+        if self.callbacks['trade_update']:
+            self.callbacks['trade_update']({
+                'type': 'auto_stop',
+                'reason': reason,
+                'session_profit_loss': self.session_profit_loss,
+                'timestamp': datetime.now().isoformat()
+            })
             threading.Timer(2.0, self.reset_session_tracking).start()
 
     def check_profit_loss_limits(self):

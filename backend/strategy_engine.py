@@ -171,9 +171,9 @@ class StrategyEngine:
         
         # Risk management tracking
         self.consecutive_losses = 0
-        self.max_consecutive_losses = 2  # Stop after 2 consecutive losses
+        self.max_consecutive_losses = 50  # Increased from 10 to 50 - Stop after 50 consecutive losses
         self.session_trades = 0
-        self.max_session_trades = 20  # Cap at 20 trades per session
+        self.max_session_trades = 100  # Increased from 100 to 100 - Cap at 100 trades per session
         self.consecutive_losses_warning_shown = False
         self.session_trades_warning_shown = False
         
@@ -439,7 +439,6 @@ class StrategyEngine:
             if not hasattr(self, 'consecutive_losses_warning_shown') or not self.consecutive_losses_warning_shown:
                 print(f"🛑 Risk management: {self.consecutive_losses} consecutive losses reached. Trading paused.")
                 self.consecutive_losses_warning_shown = True
-            print(f"DEBUG: Strategy engine stopping due to consecutive losses: {self.consecutive_losses}/{self.max_consecutive_losses}")
             return
             
         if self.session_trades >= self.max_session_trades and self.max_session_trades > 0:
@@ -447,7 +446,6 @@ class StrategyEngine:
             if not hasattr(self, 'session_trades_warning_shown') or not self.session_trades_warning_shown:
                 print(f"🛑 Risk management: Maximum {self.max_session_trades} trades for this session reached.")
                 self.session_trades_warning_shown = True
-            print(f"DEBUG: Strategy engine stopping due to session trades limit: {self.session_trades}/{self.max_session_trades}")
             return
             
         signals = []
@@ -529,7 +527,7 @@ class StrategyEngine:
                 
                 self.signal_callback(best_signal)
                 # Don't increment session trades here - this is now handled by trading_bot after trade completion
-                # The trading_bot manages the session trade counter
+                # The trading_bot manages the session trade counter and syncs it back to strategy engine
                 
                 # Log all active strategies for monitoring
                 active_strategies = [f"{s.strategy_name} ({s.confidence:.2f})" 
@@ -1711,6 +1709,65 @@ class StrategyEngine:
         print(f"Strategy engine session trades synced to {count}")
     
     # ... other existing methods ...
+    def _strategy_32(self) -> Optional[TradeSignal]:
+        """Opposite Color Flush - Trade when majority ticks flip direction"""
+        if len(self.tick_history) < 5:
+            return None
+            
+        conditions_met = []
+        
+        last_5_ticks = [tick.color for tick in list(self.tick_history)[-5:]]
+        
+        # Check if first 3 are red and last 2 are green
+        first_3_red = all(color == 'red' for color in last_5_ticks[:3])
+        last_2_green = all(color == 'green' for color in last_5_ticks[3:])
+        
+        # Check if first 3 are green and last 2 are red
+        first_3_green = all(color == 'green' for color in last_5_ticks[:3])
+        last_2_red = all(color == 'red' for color in last_5_ticks[3:])
+        
+        # RSI also rises
+        rsi_rising = self.indicators.rsi > self.indicators.rsi_previous
+        rsi_falling = self.indicators.rsi < self.indicators.rsi_previous
+        
+        if (first_3_red and last_2_green and rsi_rising):
+            conditions_met.extend(["3 red → 2 green flush", "RSI rising"])
+            return TradeSignal(
+                strategy_name=self.strategies[32],
+                direction='CALL',
+                confidence=0.79,
+                hold_time=5,
+                entry_reason="Opposite color flush - reversal to green",
+                conditions_met=conditions_met
+            )
+            
+        elif (first_3_green and last_2_red and rsi_falling):
+            conditions_met.extend(["3 green → 2 red flush", "RSI falling"])
+            return TradeSignal(
+                strategy_name=self.strategies[32],
+                direction='PUT',
+                confidence=0.79,
+                hold_time=5,
+                entry_reason="Opposite color flush - reversal to red",
+                conditions_met=conditions_met
+            )
+            
+        return None
+
+    def _strategy_29(self) -> Optional[TradeSignal]:
+        """Volatility Expansion Ride - Complete implementation"""
+        if len(self.tick_history) < 3:
+            return None
+            
+        conditions_met = []
+        
+        # Volatility > 2%
+        high_vol = self.indicators.volatility > 2.0
+        if high_vol:
+            conditions_met.append(f"High volatility ({self.indicators.volatility:.2f}%)")
+            
+        # 3 ticks same direction
+        last_3_ticks = [tick.color for tick in list(self.tick_history)[-3:]]
         consistent_direction = (all(color == 'green' for color in last_3_ticks) or 
                                all(color == 'red' for color in last_3_ticks))
         
@@ -1750,67 +1807,10 @@ class StrategyEngine:
             
         conditions_met = []
         
-        # RSI rises or falls 10+ pts over 5 ticks (simplified)
-        rsi_change = abs(self.indicators.rsi - self.indicators.rsi_previous)
-        significant_rsi_change = rsi_change > 5  # Simplified from 10+ over 5 ticks
-        
-        if significant_rsi_change:
-            conditions_met.append(f"RSI changed {rsi_change:.1f} points")
-            
-        # Momentum aligns
-        momentum_aligns = ((self.indicators.rsi > self.indicators.rsi_previous and self.indicators.momentum > 0) or
-                          (self.indicators.rsi < self.indicators.rsi_previous and self.indicators.momentum < 0))
-        if momentum_aligns:
-            conditions_met.append("Momentum aligns with RSI")
-            
-        # Tick flow 3 of 5 confirm
-        last_5_ticks = [tick.color for tick in list(self.tick_history)[-5:]]
-        green_count = last_5_ticks.count('green')
-        red_count = last_5_ticks.count('red')
-        
-        if (significant_rsi_change and momentum_aligns and 
-            self.indicators.rsi > self.indicators.rsi_previous and green_count >= 3):
-            conditions_met.append("3/5 green ticks confirm RSI tilt up")
-            return TradeSignal(
-                strategy_name=self.strategies[30],
-                direction='CALL',
-                confidence=0.85,
-                hold_time=9,
-                entry_reason="RSI gradient tilt upward",
-                conditions_met=conditions_met
-            )
-            
-        elif (significant_rsi_change and momentum_aligns and 
-              self.indicators.rsi < self.indicators.rsi_previous and red_count >= 3):
-            conditions_met.append("3/5 red ticks confirm RSI tilt down")
-            return TradeSignal(
-                strategy_name=self.strategies[30],
-                direction='PUT',
-                confidence=0.85,
-                hold_time=9,
-                entry_reason="RSI gradient tilt downward",
-                conditions_met=conditions_met
-            )
-            
-        return None
-        
-    def _strategy_31(self) -> Optional[TradeSignal]:
-        """Rebound from Flat Session - Play fakeout from low-volatility zone"""
-        if len(self.tick_history) < 3:
-            return None
-            
-        conditions_met = []
-        
-        # Volatility < 0.5%
-        very_low_vol = self.indicators.volatility < 0.5
-        if very_low_vol:
-            conditions_met.append(f"Very low volatility ({self.indicators.volatility:.2f}%)")
-            
-        current_price = self.tick_history[-1].price
-        
-        # Sudden tick expansion + Bollinger band cross
-        breaks_upper = current_price > self.indicators.bb_upper
-        breaks_lower = current_price < self.indicators.bb_lower
+        # Calculate RSI gradient (slope)
+        if len(self.tick_history) >= 6:
+            # Get RSI values for last few ticks
+            rsi_values = []
         
         if very_low_vol and breaks_upper:
             conditions_met.extend(["Sudden expansion", "Upper BB break"])

@@ -31,7 +31,7 @@ const RiskManagementPanel = ({ botStatus, onResetSessionCounter, onDisableSessio
   const riskInfo = botStatus?.risk_management || {
     max_trades_per_session: 100,  // Updated default to 100
     current_trades: 0,
-    max_consecutive_losses: 5,
+    max_consecutive_losses: 50,   // Updated from 10 to 50
     current_consecutive_losses: 0,
     limits_hit: false
   };

@@ -384,8 +384,30 @@ def get_trade_history():
         return jsonify({'error': 'Not connected to API'}), 400
         
     try:
-        # FORCE refresh trade history directly from bot
+        # IMPORTANT FIX: FORCE refresh trade history directly from bot and verify status counts
         fresh_trades = bot_instance.get_trade_history()
+        
+        # Force check for active trades that should be completed
+        if fresh_trades:
+            active_trades = [t for t in fresh_trades if t.get('status') == 'active']
+            for trade in active_trades:
+                # Check if this trade should already be completed (15 sec timeout)
+                if 'timestamp' in trade:
+                    try:
+                        from datetime import datetime, timedelta
+                        trade_time = datetime.fromisoformat(trade['timestamp'])
+                        time_passed = datetime.now() - trade_time
+                        
+                        # If more than 15 seconds passed, trade should be completed
+                        if time_passed > timedelta(seconds=15):
+                            trade['status'] = 'completed'
+                            trade['result'] = 'timeout'
+                            trade['profit_loss'] = -float(trade.get('amount', 1.0))
+                            trade['outcome_source'] = 'forced_timeout'
+                            print(f"⚠️ Forced completion of stale trade {trade.get('id')}")
+                    except Exception as e:
+                        print(f"Error checking trade timestamp: {e}")
+        
         latest_trades = fresh_trades  # Update global cache
         
         # Debug information
